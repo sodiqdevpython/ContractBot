@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.contrib import messages
@@ -348,6 +349,17 @@ class ExcelImportView(View):
                             student.password = student_data['password']
                             student.group = group
                             student.save(update_fields=['full_name', 'password', 'group'])
+
+                        # Django auth.User ni ham yaratish/yangilash
+                        # (talabalar bot orqali ham, kelajakda web orqali ham login qilishi mumkin)
+                        django_user, _ = User.objects.get_or_create(
+                            username=student_data['student_id'],
+                            defaults={'first_name': student_data['full_name']}
+                        )
+                        django_user.set_password(student_data['password'])
+                        if not student_created:
+                            django_user.first_name = student_data['full_name']
+                        django_user.save()
 
                         contract, contract_created = StudentContract.objects.get_or_create(
                             student=student,

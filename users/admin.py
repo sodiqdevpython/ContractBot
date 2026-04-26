@@ -5,6 +5,7 @@ from datetime import timedelta
 from django import forms
 from django.core.exceptions import ValidationError
 from django.utils.safestring import mark_safe
+from django.contrib.auth.models import User
 import openpyxl
 
 from .models import Group, Student, StudentContract, Parent, StudentParent, Payment, NotificationCampaign, ExcelImport
@@ -162,8 +163,17 @@ class ExcelImportAdmin(LockableAdmin):
                         'group': obj.group
                     }
                 )
-                
-                # 2. Ushbu o'quv yili uchun kontraktni yaratish yoki topish
+
+                # 2. Django auth.User ni ham yaratish/yangilash (login uchun)
+                django_user, _ = User.objects.get_or_create(
+                    username=student_id,
+                    defaults={'first_name': full_name}
+                )
+                django_user.set_password(password)
+                django_user.first_name = full_name
+                django_user.save()
+
+                # 3. Ushbu o'quv yili uchun kontraktni yaratish yoki topish
                 StudentContract.objects.update_or_create(
                     student=student,
                     academic_year=obj.academic_year,
