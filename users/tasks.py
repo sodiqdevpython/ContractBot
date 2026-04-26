@@ -63,6 +63,15 @@ def send_daily_notifications():
                         send_message = True
                 
                 if send_message:
+                    # Tutor tasdiqlagan bo'lsa — xabarnoma yuborilmaydi
+                    from dashboard.models import TutorPaymentConfirmation
+                    has_suppression = TutorPaymentConfirmation.objects.filter(
+                        contract__student=student,
+                        is_active=True
+                    ).exists()
+                    if has_suppression:
+                        continue
+
                     # Xabar matnini shakllantirish
                     text = f"⚠️ <b>Sizga yangi xabar keldi:</b>\n\n"
                     text += f"Hurmatli <b>{student.full_name}</b>,\n"
