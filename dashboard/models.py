@@ -122,3 +122,37 @@ class NotificationFailure(models.Model):
             self.parent.full_name or self.parent.phone_number if self.parent else "?"
         )
         return f"{name} — xato {self.error_code} ({self.last_failed_at.date()})"
+
+
+class PaymentSnapshot(models.Model):
+    """
+    Har bir Excel import qilinganda saqlanadigan to'lov holati surati.
+    Har guruh uchun alohida yozuv. Exclusive tier logikasi:
+      - tier_25  : ≥25% < 50% to'lagan talabalar soni
+      - tier_50  : ≥50% < 75% to'lagan talabalar soni
+      - tier_75  : ≥75% < 100% to'lagan talabalar soni
+      - tier_100 : 100% to'lagan talabalar soni
+    Har talaba faqat BITTA tierga kiradi.
+    """
+    snapshot_date = models.DateField(auto_now_add=True, verbose_name="Sana")
+    academic_year  = models.CharField(max_length=9, verbose_name="O'quv yili")
+    group = models.ForeignKey(
+        'users.Group',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='payment_snapshots',
+        verbose_name="Guruh"
+    )
+    tier_25  = models.PositiveIntegerField(default=0, verbose_name="25% to'lovchilar")
+    tier_50  = models.PositiveIntegerField(default=0, verbose_name="50% to'lovchilar")
+    tier_75  = models.PositiveIntegerField(default=0, verbose_name="75% to'lovchilar")
+    tier_100 = models.PositiveIntegerField(default=0, verbose_name="100% to'lovchilar")
+
+    class Meta:
+        ordering = ['-snapshot_date', 'group__name']
+        verbose_name = "To'lov surati"
+        verbose_name_plural = "To'lov suratlari"
+
+    def __str__(self):
+        g = self.group.name if self.group else "Barchasi"
+        return f"{self.snapshot_date} — {g}"

@@ -4,14 +4,40 @@
 {% block page_title %}Umumiy statistika{% endblock %}
 {% block nav_admin %}active{% endblock %}
 
+{% block extra_head %}
+<style>
+  .tier-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    border-radius: 20px; padding: 3px 10px;
+    font-size: .73rem; font-weight: 600;
+  }
+  .tier-0   { background:#f1f5f9; color:#64748b; }
+  .tier-25  { background:#fef3c7; color:#92400e; }
+  .tier-50  { background:#fed7aa; color:#9a3412; }
+  .tier-75  { background:#dbeafe; color:#1e40af; }
+  .tier-100 { background:#d1fae5; color:#065f46; }
+  .snap-table td, .snap-table th { font-size:.82rem; padding:.45rem .9rem; }
+  .snap-table th { background:#f8fafc; color:#475569; font-weight:600;
+    text-transform:uppercase; font-size:.7rem; letter-spacing:.05em; }
+</style>
+{% endblock %}
+
+{% block topbar_right %}
+  <a href="{% url 'dashboard:payment_stats' %}" class="btn btn-sm btn-primary">
+    <i class="fas fa-chart-bar me-1"></i>To'lov jadvali
+  </a>
+  <a href="{% url 'dashboard:campaign_send' %}" class="btn btn-sm btn-success">
+    <i class="fas fa-paper-plane me-1"></i>Xabar yuborish
+  </a>
+{% endblock %}
+
 {% block content %}
 
-<!-- Yil -->
 <div class="text-muted small mb-4">
   <i class="fas fa-calendar me-1"></i>{{ current_year }} o'quv yili bo'yicha
 </div>
 
-<!-- Katta stat kartalar -->
+<!-- Stat kartalar -->
 <div class="row g-3 mb-4">
   <div class="col-sm-6 col-xl-3">
     <div class="card stat-card p-3">
@@ -67,14 +93,44 @@
   </div>
 </div>
 
+<!-- Tier stat kartalar -->
+<div class="row g-2 mb-4">
+  <div class="col-6 col-sm-3">
+    <div class="card p-3 text-center" style="border-left:4px solid #f59e0b">
+      <div class="fw-bold" style="font-size:1.6rem;color:#92400e">{{ tier_counts.25 }}</div>
+      <div class="small text-muted">25% tier</div>
+      <div style="font-size:.7rem;color:#94a3b8">≥25% &lt; 50%</div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-3">
+    <div class="card p-3 text-center" style="border-left:4px solid #f97316">
+      <div class="fw-bold" style="font-size:1.6rem;color:#9a3412">{{ tier_counts.50 }}</div>
+      <div class="small text-muted">50% tier</div>
+      <div style="font-size:.7rem;color:#94a3b8">≥50% &lt; 75%</div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-3">
+    <div class="card p-3 text-center" style="border-left:4px solid #3b82f6">
+      <div class="fw-bold" style="font-size:1.6rem;color:#1e40af">{{ tier_counts.75 }}</div>
+      <div class="small text-muted">75% tier</div>
+      <div style="font-size:.7rem;color:#94a3b8">≥75% &lt; 100%</div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-3">
+    <div class="card p-3 text-center" style="border-left:4px solid #10b981">
+      <div class="fw-bold" style="font-size:1.6rem;color:#065f46">{{ tier_counts.100 }}</div>
+      <div class="small text-muted">100% tier</div>
+      <div style="font-size:.7rem;color:#94a3b8">To'liq to'lagan</div>
+    </div>
+  </div>
+</div>
+
 <!-- Umumiy progress -->
 {% if total_contract > 0 %}
 <div class="card mb-4 p-3">
   <div class="d-flex justify-content-between align-items-center mb-2">
     <span class="fw-semibold small">Umumiy to'lov progressi</span>
-    <span class="fw-bold" style="color:#6366f1">
-      {% widthratio total_paid total_contract 100 %}%
-    </span>
+    <span class="fw-bold" style="color:#6366f1">{% widthratio total_paid total_contract 100 %}%</span>
   </div>
   <div class="progress" style="height:10px;border-radius:5px">
     <div class="progress-bar" style="width:{% widthratio total_paid total_contract 100 %}%;background:#6366f1"></div>
@@ -101,13 +157,8 @@
         <table class="table mb-0">
           <thead>
             <tr>
-              <th>#</th>
-              <th>Guruh</th>
-              <th>Tutor</th>
-              <th>Talabalar</th>
-              <th>Qarz</th>
-              <th>Progress</th>
-              <th></th>
+              <th>#</th><th>Guruh</th><th>Tutor</th>
+              <th>Talabalar</th><th>Qarz</th><th>Progress</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -122,9 +173,7 @@
               <td>
                 {% if item.total_debt > 0 %}
                 <span class="fw-semibold" style="color:#dc2626">{{ item.total_debt|floatformat:0 }}</span>
-                {% else %}
-                <span class="text-success fw-semibold">0</span>
-                {% endif %}
+                {% else %}<span class="text-success fw-semibold">0</span>{% endif %}
               </td>
               <td style="min-width:80px">
                 {% if item.total_contract > 0 %}
@@ -135,9 +184,7 @@
                 <div class="text-muted" style="font-size:.7rem">
                   {% widthratio item.total_paid item.total_contract 100 %}%
                 </div>
-                {% else %}
-                <span class="text-muted small">—</span>
-                {% endif %}
+                {% else %}<span class="text-muted small">—</span>{% endif %}
               </td>
               <td>
                 <a href="{% url 'dashboard:group_detail' item.group.pk %}" class="btn btn-sm btn-outline-secondary">
@@ -146,9 +193,7 @@
               </td>
             </tr>
             {% empty %}
-            <tr>
-              <td colspan="7" class="text-center text-muted py-3">Guruhlar topilmadi</td>
-            </tr>
+            <tr><td colspan="7" class="text-center text-muted py-3">Guruhlar topilmadi</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -156,44 +201,58 @@
     </div>
   </div>
 
-  <!-- Top qarzdorlar -->
+  <!-- To'lov dinamikasi (snapshot tarixi) -->
   <div class="col-lg-5">
     <div class="card table-card">
-      <div class="card-header bg-transparent border-bottom" style="padding:.75rem 1rem">
-        <h6 class="mb-0"><i class="fas fa-ranking-star me-2" style="color:#dc2626"></i>Eng ko'p qarzdorlar (top 10)</h6>
+      <div class="card-header bg-transparent border-bottom d-flex align-items-center justify-content-between" style="padding:.75rem 1rem">
+        <h6 class="mb-0">
+          <i class="fas fa-clock-rotate-left me-2" style="color:#6366f1"></i>To'lov dinamikasi
+        </h6>
+        <a href="{% url 'dashboard:payment_stats' %}" class="btn btn-sm btn-light">
+          <i class="fas fa-expand me-1"></i>Kengaytirish
+        </a>
       </div>
-      <div class="card-body p-0">
-        {% if top_debtors %}
-          {% for item in top_debtors %}
-          <div class="d-flex align-items-center gap-3 px-3 py-2 border-bottom border-light">
-            <div class="rounded-circle d-flex align-items-center justify-content-center fw-bold text-white flex-shrink-0"
-                 style="width:34px;height:34px;background:{% if forloop.counter == 1 %}#ef4444{% elif forloop.counter == 2 %}#f97316{% elif forloop.counter == 3 %}#eab308{% else %}#94a3b8{% endif %};font-size:.8rem">
-              {{ forloop.counter }}
-            </div>
-            <div class="flex-grow-1 overflow-hidden">
-              <div class="fw-semibold text-truncate" style="font-size:.85rem;color:#1e293b">
-                {{ item.student.full_name }}
-              </div>
-              <div class="text-muted" style="font-size:.73rem">
-                {{ item.student.group.name|default:"—" }} · {{ item.contract.academic_year }}
-              </div>
-            </div>
-            <div class="text-end flex-shrink-0">
-              <div class="fw-bold" style="color:#dc2626;font-size:.85rem">{{ item.debt|floatformat:0 }}</div>
-              <div class="text-muted" style="font-size:.7rem">so'm</div>
-            </div>
-          </div>
-          {% endfor %}
-        {% else %}
-          <div class="text-center py-4 text-muted small">
-            <i class="fas fa-circle-check fa-2x text-success mb-2 d-block"></i>
-            Barcha talabalar to'lagan!
-          </div>
-        {% endif %}
+      {% if snapshot_rows %}
+      <div class="table-responsive">
+        <table class="table snap-table mb-0">
+          <thead>
+            <tr>
+              <th>Sana</th>
+              <th class="text-center" style="color:#92400e">25%</th>
+              <th class="text-center" style="color:#9a3412">50%</th>
+              <th class="text-center" style="color:#1e40af">75%</th>
+              <th class="text-center" style="color:#065f46">100%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in snapshot_rows %}
+            <tr>
+              <td class="fw-semibold">{{ row.snapshot_date|date:"d.m.Y" }}</td>
+              <td class="text-center">
+                <span class="tier-badge tier-25">{{ row.t25 }} ta</span>
+              </td>
+              <td class="text-center">
+                <span class="tier-badge tier-50">{{ row.t50 }} ta</span>
+              </td>
+              <td class="text-center">
+                <span class="tier-badge tier-75">{{ row.t75 }} ta</span>
+              </td>
+              <td class="text-center">
+                <span class="tier-badge tier-100">{{ row.t100 }} ta</span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
+      {% else %}
+      <div class="p-4 text-center text-muted small">
+        <i class="fas fa-file-excel fa-2x mb-2 d-block text-success"></i>
+        Hali snapshot yo'q.<br>Excel import qilganda bu yerda ko'rinadi.
+      </div>
+      {% endif %}
     </div>
   </div>
 
 </div>
-
 {% endblock %}

@@ -1,3 +1,8 @@
+import io
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.utils import get_column_letter
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -7,9 +12,11 @@ from django.views import View
 from django.contrib import messages
 from django.db import transaction
 from django.db.models import Sum, Count, Q
+from django.core.paginator import Paginator
+from django.http import HttpResponse
 
 from users.models import Group, Student, StudentContract, Payment, StudentParent, Parent, current_academic_year
-from .models import TutorPaymentConfirmation, ParentTutorVerification, NotificationFailure
+from .models import TutorPaymentConfirmation, ParentTutorVerification, NotificationFailure, PaymentSnapshot
 from .excel_parser import parse_multi_group_excel
 from .forms import LoginForm, ExcelImportForm, ConfirmPaymentForm
 
@@ -19,14 +26,12 @@ from .forms import LoginForm, ExcelImportForm, ConfirmPaymentForm
 # ---------------------------------------------------------------------------
 
 def get_accessible_groups(user):
-    """Foydalanuvchiga ruxsat berilgan guruhlarni qaytaradi."""
     if user.is_staff:
         return Group.objects.all().select_related('tutor')
     return Group.objects.filter(tutor=user).select_related('tutor')
 
 
 def can_access_student(user, student):
-    """Tutor faqat o'z guruhidagi talabalarga kira oladi."""
     if user.is_staff:
         return True
     if student.group is None:
@@ -36,13 +41,8 @@ def can_access_student(user, student):
 
 def group_stats(group, academic_year):
     students = Student.objects.filter(group=group)
-    contracts = StudentContract.objects.filter(
-        student__in=students, academic_year=academic_year
-    )
-    agg = contracts.aggregate(
-        total_contract=Sum('contract_amount'),
-        total_paid=Sum('paid_amount'),
-    )
+    contracts = StudentContract.objects.filter(student__in=students, academic_year=academic_year)
+    agg = contracts.aggregate(total_contract=Sum('contract_amount'), total_paid=Sum('paid_amount'))
     total_contract = agg['total_contract'] or 0
     total_paid = agg['total_paid'] or 0
     return {
@@ -52,6 +52,45 @@ def group_stats(group, academic_year):
         'total_paid': total_paid,
         'total_debt': total_contract - total_paid,
     }
+
+
+def _calc_pct(contract):
+    """To'lov foizini qaytaradi (0.0–100.0+)."""
+    if not contract or contract.contract_amount == 0:
+        return 100.0
+    return float(contract.paid_amount) / float(contract.contract_amount) * 100.0
+
+
+def _calc_tier(pct):
+    """Exclusive tier: 0, 25, 50, 75 yoki 100."""
+    if pct >= 100: return 100
+    if pct >= 75:  return 75
+    if pct >= 50:  return 50
+    if pct >= 25:  return 25
+    return 0
+
+
+def _take_snapshot(group, academic_year):
+    """Excel import qilinganda guruh bo'yicha to'lov suratini yangilaydi."""
+    from django.utils import timezone
+    contracts = StudentContract.objects.filter(
+        student__group=group, academic_year=academic_year
+    )
+    t = {25: 0, 50: 0, 75: 0, 100: 0}
+    for c in contracts:
+        tier = _calc_tier(_calc_pct(c))
+        if tier in t:
+            t[tier] += 1
+
+    PaymentSnapshot.objects.update_or_create(
+        snapshot_date=timezone.localdate(),
+        group=group,
+        academic_year=academic_year,
+        defaults={
+            'tier_25': t[25], 'tier_50': t[50],
+            'tier_75': t[75], 'tier_100': t[100],
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +138,6 @@ class GroupsView(View):
             totals['debt'] += stats['total_debt']
             totals['contract'] += stats['total_contract']
 
-        # Qarzga ko'ra tartiblash (ko'pdan kamga)
         groups_data.sort(key=lambda x: x['total_debt'], reverse=True)
 
         context = {
@@ -125,7 +163,7 @@ class GroupDetailView(View):
 
         current_year = current_academic_year()
         search = request.GET.get('q', '').strip()
-        debt_filter = request.GET.get('debt', '')  # 'has_debt' | 'no_debt' | ''
+        debt_filter = request.GET.get('debt', '')
 
         students_qs = Student.objects.filter(group=group).prefetch_related('contracts')
 
@@ -141,7 +179,6 @@ class GroupDetailView(View):
             contract_amount = float(contract.contract_amount) if contract else 0
             paid_amount = float(contract.paid_amount) if contract else 0
 
-            # Tutor tasdiqlash holati
             has_confirmation = False
             if contract:
                 has_confirmation = contract.tutor_confirmations.filter(is_active=True).exists()
@@ -156,15 +193,12 @@ class GroupDetailView(View):
                 'debt_pct': round((paid_amount / contract_amount * 100) if contract_amount > 0 else 100),
             })
 
-        # Filtr
         if debt_filter == 'has_debt':
             students_data = [s for s in students_data if s['debt'] > 0]
         elif debt_filter == 'no_debt':
             students_data = [s for s in students_data if s['debt'] <= 0]
 
-        # Qarzga ko'ra tartiblash
         students_data.sort(key=lambda x: x['debt'], reverse=True)
-
         stats = group_stats(group, current_year)
 
         context = {
@@ -196,13 +230,10 @@ class StudentDetailView(View):
 
         active_confirmation = None
         if current_contract:
-            active_confirmation = current_contract.tutor_confirmations.filter(
-                is_active=True
-            ).first()
+            active_confirmation = current_contract.tutor_confirmations.filter(is_active=True).first()
 
         all_contracts = student.contracts.order_by('-academic_year')
         all_payments = student.all_payments
-
         confirm_form = ConfirmPaymentForm()
 
         context = {
@@ -218,7 +249,7 @@ class StudentDetailView(View):
 
 
 # ---------------------------------------------------------------------------
-# Confirm payment
+# Confirm / Cancel payment
 # ---------------------------------------------------------------------------
 
 @method_decorator(login_required(login_url='/dashboard/login/'), name='dispatch')
@@ -237,23 +268,12 @@ class ConfirmPaymentView(View):
             messages.error(request, "Joriy yil uchun shartnoma topilmadi.")
             return redirect('dashboard:student_detail', student_id=student_id)
 
-        # Avvalgi faol tasdiqqlarni o'chiramiz
-        TutorPaymentConfirmation.objects.filter(
-            contract=contract, is_active=True
-        ).update(is_active=False)
-
+        TutorPaymentConfirmation.objects.filter(contract=contract, is_active=True).update(is_active=False)
         note = request.POST.get('note', '').strip()
         TutorPaymentConfirmation.objects.create(
-            contract=contract,
-            confirmed_by=request.user,
-            is_active=True,
-            note=note,
+            contract=contract, confirmed_by=request.user, is_active=True, note=note,
         )
-
-        messages.success(
-            request,
-            f"{student.full_name} uchun to'lov tasdiqlandi. Xabarnomalar to'xtatildi."
-        )
+        messages.success(request, f"{student.full_name} uchun to'lov tasdiqlandi. Xabarnomalar to'xtatildi.")
         return redirect('dashboard:student_detail', student_id=student_id)
 
 
@@ -268,11 +288,8 @@ class CancelConfirmationView(View):
 
         current_year = current_academic_year()
         contract = student.contracts.filter(academic_year=current_year).first()
-
         if contract:
-            TutorPaymentConfirmation.objects.filter(
-                contract=contract, is_active=True
-            ).update(is_active=False)
+            TutorPaymentConfirmation.objects.filter(contract=contract, is_active=True).update(is_active=False)
             messages.info(request, "Tasdiqlash bekor qilindi. Xabarnomalar qayta faollashadi.")
 
         return redirect('dashboard:student_detail', student_id=student_id)
@@ -306,7 +323,6 @@ class ExcelImportView(View):
             messages.error(request, "Fayl bo'sh yoki guruh topilmadi. Formatni tekshiring.")
             return render(request, 'dashboard/excel_import.html', {'form': form})
 
-        # Foydalanuvchiga ruxsat berilgan guruhlar
         if request.user.is_staff:
             accessible = {g.name.lower(): g for g in Group.objects.all()}
         else:
@@ -318,13 +334,9 @@ class ExcelImportView(View):
         for group_name, students_data in sections.items():
             if group_name not in accessible:
                 if Group.objects.filter(name__iexact=group_name).exists():
-                    errors.append(
-                        f"'{group_name}' guruhi tizimda mavjud, lekin siz unga biriktirilmagan."
-                    )
+                    errors.append(f"'{group_name}' guruhi tizimda mavjud, lekin siz unga biriktirilmagan.")
                 else:
-                    errors.append(
-                        f"'{group_name}' guruhi tizimda yo'q. Bu bo'lim o'tkazib yuborildi."
-                    )
+                    errors.append(f"'{group_name}' guruhi tizimda yo'q. Bu bo'lim o'tkazib yuborildi.")
                 continue
 
             group = accessible[group_name]
@@ -351,7 +363,6 @@ class ExcelImportView(View):
                             student.save(update_fields=['full_name', 'password', 'group'])
 
                         # Django auth.User ni ham yaratish/yangilash
-                        # (talabalar bot orqali ham, kelajakda web orqali ham login qilishi mumkin)
                         django_user, _ = User.objects.get_or_create(
                             username=student_data['student_id'],
                             defaults={'first_name': student_data['full_name']}
@@ -373,16 +384,11 @@ class ExcelImportView(View):
                         )
 
                         if not contract_created:
-                            # Excel har doim haq - yangilash
                             contract.course_level = student_data['course_level']
                             contract.contract_amount = student_data['contract_amount']
                             contract.paid_amount = student_data['paid_amount']
                             contract.is_grant = student_data['contract_amount'] == 0
-                            contract.save(update_fields=[
-                                'course_level', 'contract_amount', 'paid_amount', 'is_grant'
-                            ])
-
-                            # Excel yangilandi — tutor tasdiqqlarini bekor qilamiz
+                            contract.save(update_fields=['course_level', 'contract_amount', 'paid_amount', 'is_grant'])
                             TutorPaymentConfirmation.objects.filter(
                                 contract=contract, is_active=True
                             ).update(is_active=False)
@@ -394,6 +400,12 @@ class ExcelImportView(View):
 
                 except Exception as e:
                     row_errors.append(f"ID {student_data.get('student_id', '?')}: {e}")
+
+            # Har guruh import qilinganda snapshot olish
+            try:
+                _take_snapshot(group, academic_year)
+            except Exception:
+                pass
 
             results.append({
                 'group': group_name,
@@ -431,11 +443,9 @@ class AdminOverviewView(View):
         for group in all_groups:
             stats = group_stats(group, current_year)
             groups_data.append({'group': group, **stats})
-
         groups_data.sort(key=lambda x: x['total_debt'], reverse=True)
 
         total_students = Student.objects.count()
-        total_contracts = StudentContract.objects.filter(academic_year=current_year).count()
         agg = StudentContract.objects.filter(academic_year=current_year).aggregate(
             total_contract=Sum('contract_amount'),
             total_paid=Sum('paid_amount'),
@@ -444,29 +454,310 @@ class AdminOverviewView(View):
         total_paid = agg['total_paid'] or 0
         total_debt = total_contract - total_paid
 
-        # Eng ko'p qarzli 10 ta talaba
-        top_debtors = []
-        for contract in StudentContract.objects.filter(
-            academic_year=current_year
-        ).select_related('student', 'student__group').order_by('-contract_amount'):
-            debt = float(contract.debt_amount)
-            if debt > 0:
-                top_debtors.append({'student': contract.student, 'contract': contract, 'debt': debt})
-            if len(top_debtors) >= 10:
-                break
+        # To'lov snapshot tarixi (oxirgi 10 ta)
+        snapshot_rows = (
+            PaymentSnapshot.objects
+            .filter(academic_year=current_year)
+            .values('snapshot_date')
+            .annotate(
+                t25=Sum('tier_25'), t50=Sum('tier_50'),
+                t75=Sum('tier_75'), t100=Sum('tier_100'),
+            )
+            .order_by('-snapshot_date')[:10]
+        )
+
+        # Joriy holat: tier counts
+        current_tier_counts = _current_tier_counts(all_groups, current_year)
 
         context = {
             'groups_data': groups_data,
             'current_year': current_year,
             'total_students': total_students,
-            'total_contracts': total_contracts,
             'total_contract': total_contract,
             'total_paid': total_paid,
             'total_debt': total_debt,
-            'top_debtors': top_debtors,
             'groups_count': all_groups.count(),
+            'snapshot_rows': snapshot_rows,
+            'tier_counts': current_tier_counts,
         }
         return render(request, 'dashboard/admin_overview.html', context)
+
+
+def _current_tier_counts(groups, academic_year):
+    """Joriy o'quv yilida har tierdagi talabalar sonini hisoblaydi."""
+    t = {0: 0, 25: 0, 50: 0, 75: 0, 100: 0}
+    for student in Student.objects.filter(group__in=groups):
+        contract = student.contracts.filter(academic_year=academic_year).first()
+        tier = _calc_tier(_calc_pct(contract))
+        t[tier] = t.get(tier, 0) + 1
+    return t
+
+
+# ---------------------------------------------------------------------------
+# To'lov statistikasi (katta jadval)
+# ---------------------------------------------------------------------------
+
+@method_decorator(login_required(login_url='/dashboard/login/'), name='dispatch')
+class PaymentStatsView(View):
+    def get(self, request):
+        current_year = current_academic_year()
+        all_groups = get_accessible_groups(request.user)
+
+        # Filters
+        group_filter  = request.GET.get('group', '').strip()
+        tier_filter   = request.GET.get('tier', '').strip()    # 0/25/50/75/100/''
+        search        = request.GET.get('q', '').strip()
+        sort_by       = request.GET.get('sort', 'pct')         # pct / paid / debt / name
+        sort_dir      = request.GET.get('dir', 'desc')
+        do_export     = request.GET.get('export', '')
+
+        groups_qs = all_groups
+        if group_filter:
+            groups_qs = groups_qs.filter(pk=group_filter)
+
+        students_qs = (
+            Student.objects
+            .filter(group__in=groups_qs)
+            .select_related('group')
+            .prefetch_related('contracts')
+        )
+        if search:
+            students_qs = students_qs.filter(
+                Q(full_name__icontains=search) | Q(student_id__icontains=search)
+            )
+
+        # Build rows with tier info
+        rows = []
+        for student in students_qs:
+            contract = student.contracts.filter(academic_year=current_year).first()
+            pct  = _calc_pct(contract)
+            tier = _calc_tier(pct)
+            paid  = float(contract.paid_amount)      if contract else 0
+            total = float(contract.contract_amount)  if contract else 0
+            debt  = float(contract.debt_amount)      if contract else 0
+            rows.append({
+                'student': student,
+                'contract': contract,
+                'pct': round(min(pct, 100), 1),
+                'tier': tier,
+                'paid': paid,
+                'total': total,
+                'debt': debt,
+            })
+
+        # Tier filter
+        if tier_filter != '':
+            try:
+                tf = int(tier_filter)
+                rows = [r for r in rows if r['tier'] == tf]
+            except ValueError:
+                pass
+
+        # Sort
+        sort_map = {'pct': 'pct', 'paid': 'paid', 'debt': 'debt', 'name': None}
+        reverse = (sort_dir == 'desc')
+        if sort_by == 'name':
+            rows.sort(key=lambda r: r['student'].full_name, reverse=reverse)
+        elif sort_by in sort_map:
+            rows.sort(key=lambda r: r.get(sort_by, 0), reverse=reverse)
+
+        # Excel export
+        if do_export == 'xlsx':
+            return self._export_excel(rows, current_year)
+
+        # Tier counts (all accessible, no tier-filter applied)
+        tier_counts = _current_tier_counts(all_groups, current_year)
+
+        # Snapshot history
+        snap_qs = PaymentSnapshot.objects.filter(academic_year=current_year)
+        if group_filter:
+            snap_qs = snap_qs.filter(group__pk=group_filter)
+        else:
+            snap_qs = snap_qs.filter(group__in=all_groups)
+        snapshot_rows = (
+            snap_qs
+            .values('snapshot_date')
+            .annotate(t25=Sum('tier_25'), t50=Sum('tier_50'), t75=Sum('tier_75'), t100=Sum('tier_100'))
+            .order_by('-snapshot_date')[:15]
+        )
+
+        # Pagination
+        paginator = Paginator(rows, 100)
+        page_obj  = paginator.get_page(request.GET.get('page', 1))
+
+        next_dir = 'asc' if reverse else 'desc'
+        context = {
+            'page_obj': page_obj,
+            'current_year': current_year,
+            'all_groups': all_groups,
+            'group_filter': group_filter,
+            'tier_filter': tier_filter,
+            'search': search,
+            'sort_by': sort_by,
+            'sort_dir': sort_dir,
+            'next_dir': next_dir,
+            'tier_counts': tier_counts,
+            'snapshot_rows': snapshot_rows,
+            'total_rows': len(rows),
+        }
+        return render(request, 'dashboard/payment_stats.html', context)
+
+    # ---- Excel export ----
+    def _export_excel(self, rows, academic_year):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "To'lov statistikasi"
+
+        # Header style
+        hdr_fill = PatternFill("solid", fgColor="1E293B")
+        hdr_font = Font(bold=True, color="FFFFFF")
+
+        headers = ['#', 'F.I.O', 'ID', 'Guruh', 'Kurs', "Kontrakt (so'm)", "To'langan (so'm)", "Qarz (so'm)", "Foiz (%)", "Tier"]
+        for col, h in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=h)
+            cell.fill = hdr_fill
+            cell.font = hdr_font
+            cell.alignment = Alignment(horizontal='center')
+
+        tier_labels = {0: 'Toʻlamagan', 25: '25% tier', 50: '50% tier', 75: '75% tier', 100: '100% tier'}
+        for i, r in enumerate(rows, 1):
+            s = r['student']
+            c = r['contract']
+            ws.append([
+                i,
+                s.full_name,
+                s.student_id,
+                s.group.name if s.group else '',
+                c.course_level if c else '',
+                r['total'],
+                r['paid'],
+                r['debt'],
+                r['pct'],
+                tier_labels.get(r['tier'], ''),
+            ])
+
+        # Column widths
+        for col_idx, width in enumerate([5, 30, 15, 12, 7, 18, 18, 18, 10, 12], 1):
+            ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        response = HttpResponse(
+            output.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename="payment_stats_{academic_year}.xlsx"'
+        return response
+
+
+# ---------------------------------------------------------------------------
+# Xabarnoma yuborish (bulk campaign)
+# ---------------------------------------------------------------------------
+
+@method_decorator(login_required(login_url='/dashboard/login/'), name='dispatch')
+class CampaignSendView(View):
+    def get(self, request):
+        all_groups = get_accessible_groups(request.user)
+        failures_count = NotificationFailure.objects.count()
+        context = {
+            'all_groups': all_groups,
+            'failures_count': failures_count,
+        }
+        return render(request, 'dashboard/campaign_send.html', context)
+
+    def post(self, request):
+        from users.tasks import send_telegram_message as _send_msg
+
+        group_ids      = request.POST.getlist('groups')
+        recipient_type = request.POST.get('recipient_type', 'student_only')
+        tier_filter    = int(request.POST.get('tier_filter', 0))
+        student_type   = request.POST.get('student_type', 'all')
+        message_text   = request.POST.get('message_text', '').strip()
+
+        if not group_ids or not message_text:
+            messages.error(request, "Kamida bitta guruh tanlang va xabar kiriting.")
+            return redirect('dashboard:campaign_send')
+
+        # Faqat ruxsat berilgan guruhlarga cheklash
+        accessible_ids = list(
+            get_accessible_groups(request.user).values_list('pk', flat=True)
+        )
+        group_ids = [gid for gid in group_ids if int(gid) in accessible_ids]
+
+        students = (
+            Student.objects
+            .filter(group__in=group_ids)
+            .select_related('group')
+            .prefetch_related('contracts', 'parents__parent')
+        )
+        if student_type == 'contract_only':
+            students = students.filter(contracts__is_grant=False).distinct()
+        elif student_type == 'grant_only':
+            students = students.filter(contracts__is_grant=True).distinct()
+
+        current_year = current_academic_year()
+        sent = failed = skipped = 0
+
+        for student in students:
+            # Tier filter: faqat shuncha % kam to'laganlar
+            if tier_filter > 0:
+                contract = student.contracts.filter(academic_year=current_year).first()
+                if contract and contract.contract_amount > 0:
+                    pct = float(contract.paid_amount) / float(contract.contract_amount) * 100
+                    if pct >= tier_filter:
+                        skipped += 1
+                        continue
+
+            # Tutor tasdiqlagan bo'lsa o'tkazib yuboramiz
+            if TutorPaymentConfirmation.objects.filter(
+                contract__student=student, is_active=True
+            ).exists():
+                skipped += 1
+                continue
+
+            student_text = (
+                f"📢 <b>Xabarnoma</b>\n\n"
+                f"Hurmatli <b>{student.full_name}</b>,\n\n"
+                f"{message_text}"
+            )
+
+            # Talabaning o'ziga
+            if recipient_type in ('student_only', 'student_and_parent'):
+                if student.telegram_id:
+                    ok = _send_msg(student.telegram_id, student_text, student=student)
+                    sent += 1 if ok else 0
+                    failed += 0 if ok else 1
+                else:
+                    skipped += 1
+
+            # Ota-onaga
+            if recipient_type in ('parent_only', 'student_and_parent'):
+                for rel in student.parents.filter(status='verified').select_related('parent'):
+                    if rel.parent.telegram_id:
+                        parent_text = (
+                            f"📢 <b>Xabarnoma</b>\n\n"
+                            f"Hurmatli ota-ona, farzandingiz "
+                            f"<b>{student.full_name}</b> haqida:\n\n"
+                            f"{message_text}"
+                        )
+                        ok = _send_msg(rel.parent.telegram_id, parent_text, parent=rel.parent)
+                        sent += 1 if ok else 0
+                        failed += 0 if ok else 1
+                    else:
+                        skipped += 1
+
+        if failed:
+            messages.warning(
+                request,
+                f"Yuborildi: {sent} ta ✅  |  Xato: {failed} ta ❌  |  O'tkazib: {skipped} ta"
+            )
+        else:
+            messages.success(
+                request,
+                f"Muvaffaqiyatli yuborildi: {sent} ta ✅  |  O'tkazib: {skipped} ta"
+            )
+        return redirect('dashboard:campaign_send')
 
 
 # ---------------------------------------------------------------------------
@@ -478,10 +769,9 @@ class ParentsView(View):
     def get(self, request):
         groups = get_accessible_groups(request.user)
 
-        # Filtrlar
         search        = request.GET.get('q', '').strip()
         group_filter  = request.GET.get('group', '')
-        status_filter = request.GET.get('status', '')  # verified, pending_otp, no_parent, tutor_verified
+        status_filter = request.GET.get('status', '')
 
         if group_filter:
             groups = groups.filter(pk=group_filter)
@@ -489,8 +779,7 @@ class ParentsView(View):
         students_qs = Student.objects.filter(
             group__in=groups
         ).select_related('group').prefetch_related(
-            'parents__parent',
-            'parents__tutor_verification',
+            'parents__parent', 'parents__tutor_verification',
         )
 
         if search:
@@ -549,11 +838,8 @@ class ParentsView(View):
 
 @method_decorator(login_required(login_url='/dashboard/login/'), name='dispatch')
 class VerifyParentView(View):
-    """Tutor ota-onani maksimal darajada tasdiqlaydi."""
     def post(self, request, sp_id):
         sp = get_object_or_404(StudentParent, pk=sp_id)
-
-        # Kirish huquqini tekshirish
         if not can_access_student(request.user, sp.student):
             messages.error(request, "Sizda bu talabaga kirish huquqi yo'q.")
             return redirect('dashboard:parents')
@@ -565,17 +851,15 @@ class VerifyParentView(View):
         )
         messages.success(
             request,
-            f"{sp.parent.full_name or sp.parent.phone_number} — tutor tomonidan maksimal darajada tasdiqlandi."
+            f"{sp.parent.full_name or sp.parent.phone_number} — maksimal darajada tasdiqlandi."
         )
         return redirect(request.POST.get('next', 'dashboard:parents'))
 
 
 @method_decorator(login_required(login_url='/dashboard/login/'), name='dispatch')
 class UnverifyParentView(View):
-    """Tutor tasdiqlashini bekor qiladi."""
     def post(self, request, sp_id):
         sp = get_object_or_404(StudentParent, pk=sp_id)
-
         if not can_access_student(request.user, sp.student):
             messages.error(request, "Sizda bu talabaga kirish huquqi yo'q.")
             return redirect('dashboard:parents')
@@ -592,14 +876,11 @@ class UnverifyParentView(View):
 @method_decorator(login_required(login_url='/dashboard/login/'), name='dispatch')
 class NotificationFailuresView(View):
     def get(self, request):
-        type_filter = request.GET.get('type', '')  # student | parent | ''
+        type_filter = request.GET.get('type', '')
         search      = request.GET.get('q', '').strip()
 
-        failures_qs = NotificationFailure.objects.select_related(
-            'student__group', 'parent', 'campaign'
-        )
+        failures_qs = NotificationFailure.objects.select_related('student__group', 'parent', 'campaign')
 
-        # Tutor faqat o'z guruhidagilarni ko'radi
         if not request.user.is_staff:
             accessible_groups = get_accessible_groups(request.user)
             failures_qs = failures_qs.filter(
@@ -630,7 +911,6 @@ class NotificationFailuresView(View):
         return render(request, 'dashboard/notification_failures.html', context)
 
     def post(self, request):
-        """Xato yozuvini qo'lda o'chirish (hal qilingan deb belgilash)."""
         failure_id = request.POST.get('failure_id')
         if failure_id:
             NotificationFailure.objects.filter(pk=failure_id).delete()

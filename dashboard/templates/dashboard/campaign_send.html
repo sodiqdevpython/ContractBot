@@ -1,0 +1,340 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Xabarnoma yuborish{% endblock %}
+{% block page_title %}Xabarnoma yuborish{% endblock %}
+{% block nav_campaign %}active{% endblock %}
+
+{% block extra_head %}
+<style>
+  .group-checkbox-label {
+    display: flex; align-items: center; gap: .6rem;
+    padding: .5rem .75rem; border-radius: 8px;
+    cursor: pointer; font-size: .875rem;
+    transition: background .12s;
+  }
+  .group-checkbox-label:hover { background: #f1f5f9; }
+  .group-checkbox-label input[type=checkbox] {
+    accent-color: #6366f1; width: 16px; height: 16px; flex-shrink: 0;
+  }
+  .group-checkbox-label.checked { background: #ede9fe; }
+
+  .recipient-card {
+    border: 2px solid #e2e8f0; border-radius: 10px;
+    padding: .65rem 1rem; cursor: pointer;
+    transition: border-color .15s, background .15s;
+    font-size: .85rem;
+  }
+  .recipient-card:has(input:checked) {
+    border-color: #6366f1; background: #f5f3ff;
+  }
+  .recipient-card input { display:none; }
+
+  .tier-option {
+    border: 1.5px solid #e2e8f0; border-radius: 8px; padding: .5rem .85rem;
+    cursor: pointer; font-size: .82rem; text-align: center;
+    transition: all .15s;
+  }
+  .tier-option:has(input:checked) { border-color: #6366f1; background: #ede9fe; color: #4f46e5; }
+  .tier-option input { display:none; }
+
+  .failure-row-mini {
+    display: flex; align-items: center; gap: .75rem;
+    padding: .5rem .75rem; border-bottom: 1px solid #f1f5f9;
+    font-size: .8rem;
+  }
+  .failure-row-mini:last-child { border-bottom: none; }
+  .pulse-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #ef4444;
+    animation: pulse 1.5s infinite; flex-shrink: 0;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+
+  <!-- ═══ Chap: Forma ═══ -->
+  <div class="col-lg-5">
+    <form method="post" id="sendForm">
+      {% csrf_token %}
+
+      <!-- Guruhlar -->
+      <div class="card mb-3">
+        <div class="card-header bg-transparent border-bottom d-flex justify-content-between align-items-center py-2 px-3">
+          <h6 class="mb-0 small fw-bold">
+            <i class="fas fa-users me-2 text-primary"></i>Guruhlar tanlang
+          </h6>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-xs btn-outline-secondary" style="font-size:.72rem;padding:2px 8px"
+                    onclick="document.querySelectorAll('.group-cb').forEach(c=>c.checked=true);updateLabels()">
+              Barchasi
+            </button>
+            <button type="button" class="btn btn-xs btn-outline-secondary" style="font-size:.72rem;padding:2px 8px"
+                    onclick="document.querySelectorAll('.group-cb').forEach(c=>c.checked=false);updateLabels()">
+              Tozalash
+            </button>
+          </div>
+        </div>
+        <div class="card-body p-2" style="max-height:280px;overflow-y:auto">
+          {% for group in all_groups %}
+          <label class="group-checkbox-label" id="lbl_{{ group.pk }}">
+            <input type="checkbox" class="group-cb" name="groups" value="{{ group.pk }}"
+                   onchange="updateLabels()" checked>
+            <span class="flex-grow-1">{{ group.name }}</span>
+            {% if group.tutor %}
+            <span class="text-muted" style="font-size:.72rem">
+              {{ group.tutor.get_full_name|default:group.tutor.username }}
+            </span>
+            {% endif %}
+          </label>
+          {% empty %}
+          <div class="text-center py-3 text-muted small">Guruhlar topilmadi</div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Kimga yuborilsin -->
+      <div class="card mb-3">
+        <div class="card-header bg-transparent border-bottom py-2 px-3">
+          <h6 class="mb-0 small fw-bold">
+            <i class="fas fa-bullseye me-2 text-danger"></i>Kimga yuborilsin?
+          </h6>
+        </div>
+        <div class="card-body p-3 d-flex flex-column gap-2">
+          <label class="recipient-card d-flex align-items-center gap-2">
+            <input type="radio" name="recipient_type" value="student_only" checked>
+            <div>
+              <div class="fw-semibold"><i class="fas fa-user-graduate me-1 text-primary"></i>Faqat talabalar</div>
+              <div class="text-muted small">Talabaning o'z Telegram akkauntiga</div>
+            </div>
+          </label>
+          <label class="recipient-card d-flex align-items-center gap-2">
+            <input type="radio" name="recipient_type" value="student_and_parent">
+            <div>
+              <div class="fw-semibold"><i class="fas fa-people-roof me-1 text-success"></i>Talaba va ota-onaga</div>
+              <div class="text-muted small">Ikkalasiga ham yuboriladi</div>
+            </div>
+          </label>
+          <label class="recipient-card d-flex align-items-center gap-2">
+            <input type="radio" name="recipient_type" value="parent_only">
+            <div>
+              <div class="fw-semibold"><i class="fas fa-house-user me-1 text-warning"></i>Faqat ota-onalar</div>
+              <div class="text-muted small">Tasdiqlangan ota-onalarga</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Talaba turi -->
+      <div class="card mb-3">
+        <div class="card-header bg-transparent border-bottom py-2 px-3">
+          <h6 class="mb-0 small fw-bold">
+            <i class="fas fa-filter me-2 text-info"></i>Talaba turi
+          </h6>
+        </div>
+        <div class="card-body p-3">
+          <select name="student_type" class="form-select form-select-sm">
+            <option value="all">Barchasi (Grant + Kontrakt)</option>
+            <option value="contract_only">Faqat kontrakt talabalar</option>
+            <option value="grant_only">Faqat grant talabalar</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- To'lov filtri -->
+      <div class="card mb-3">
+        <div class="card-header bg-transparent border-bottom py-2 px-3">
+          <h6 class="mb-0 small fw-bold">
+            <i class="fas fa-percent me-2 text-orange"></i>To'lov filtri
+            <span class="text-muted fw-normal" style="font-size:.72rem">— kimlar to'laganini cheklab yuborish</span>
+          </h6>
+        </div>
+        <div class="card-body p-3">
+          <div class="row g-2">
+            {% for val, label in "0:Hammaga (filtersiz),25:25% dan kam to'laganlar,50:50% dan kam to'laganlar,75:75% dan kam to'laganlar,100:100% dan kam (hali to'lamaydi)"|split:","|zip %}
+            {% endfor %}
+            <!-- Manual options since Django template can't split easily -->
+            <div class="col-6">
+              <label class="tier-option w-100">
+                <input type="radio" name="tier_filter" value="0" checked>
+                <i class="fas fa-globe me-1"></i>Hammaga
+              </label>
+            </div>
+            <div class="col-6">
+              <label class="tier-option w-100" style="border-color:#f59e0b">
+                <input type="radio" name="tier_filter" value="25">
+                <span style="color:#92400e">&lt;25% to'lagan</span>
+              </label>
+            </div>
+            <div class="col-6">
+              <label class="tier-option w-100" style="border-color:#f97316">
+                <input type="radio" name="tier_filter" value="50">
+                <span style="color:#9a3412">&lt;50% to'lagan</span>
+              </label>
+            </div>
+            <div class="col-6">
+              <label class="tier-option w-100" style="border-color:#3b82f6">
+                <input type="radio" name="tier_filter" value="75">
+                <span style="color:#1e40af">&lt;75% to'lagan</span>
+              </label>
+            </div>
+            <div class="col-12">
+              <label class="tier-option w-100" style="border-color:#10b981">
+                <input type="radio" name="tier_filter" value="100">
+                <span style="color:#065f46">100% dan kam (to'liq to'lamaganlar)</span>
+              </label>
+            </div>
+          </div>
+          <div class="mt-2 small text-muted">
+            <i class="fas fa-circle-info me-1"></i>
+            Masalan: "50% dan kam" — kontrakt summasining 50% dan kamini to'lagan talabalar olinadi.
+          </div>
+        </div>
+      </div>
+
+      <!-- Xabar matni -->
+      <div class="card mb-3">
+        <div class="card-header bg-transparent border-bottom py-2 px-3">
+          <h6 class="mb-0 small fw-bold">
+            <i class="fas fa-message me-2" style="color:#6366f1"></i>Xabar matni
+          </h6>
+        </div>
+        <div class="card-body p-3">
+          <textarea name="message_text" class="form-control" rows="6"
+                    placeholder="Xabar matnini kiriting...&#10;&#10;HTML teglari qo'llab-quvvatlanadi:&#10;&lt;b&gt;qalin&lt;/b&gt;, &lt;i&gt;kursiv&lt;/i&gt;, &lt;code&gt;kod&lt;/code&gt;"
+                    id="msgText" oninput="updatePreview()"></textarea>
+          <div class="d-flex justify-content-between mt-1">
+            <span class="text-muted" style="font-size:.72rem">
+              HTML: &lt;b&gt; &lt;i&gt; &lt;code&gt; &lt;a href&gt; qo'llab-quvvatlanadi
+            </span>
+            <span class="text-muted" id="charCount" style="font-size:.72rem">0 belgi</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Submit -->
+      <button type="submit" class="btn btn-primary w-100 py-2"
+              onclick="return confirm('Xabarnomani yuborishni tasdiqlaysizmi?\nBu amalni qaytarib bo\'lmaydi.')">
+        <i class="fas fa-paper-plane me-2"></i>Xabarnomani yuborish
+      </button>
+      <div class="text-muted small text-center mt-2">
+        <i class="fas fa-shield-halved me-1"></i>
+        Tutor tasdiqlagan talabalar avtomatik o'tkazib yuboriladi
+      </div>
+    </form>
+  </div>
+
+  <!-- ═══ O'ng: Ko'rsatma va holat ═══ -->
+  <div class="col-lg-7">
+
+    <!-- Xabar ko'rinishi -->
+    <div class="card mb-3">
+      <div class="card-header bg-transparent border-bottom py-2 px-3">
+        <h6 class="mb-0 small fw-bold">
+          <i class="fas fa-eye me-2 text-success"></i>Xabar ko'rinishi (preview)
+        </h6>
+      </div>
+      <div class="card-body p-3">
+        <div style="background:#f0f0f0;border-radius:12px;padding:12px 16px;max-width:320px;margin:0 auto;position:relative">
+          <div style="font-size:.75rem;color:#888;margin-bottom:6px">ContractBot</div>
+          <div id="msgPreview" style="font-size:.88rem;line-height:1.5;white-space:pre-wrap;color:#1a1a1a">
+            📢 <b>Xabarnoma</b>
+
+Hurmatli <b>[Talaba ismi]</b>,
+
+<i>Xabar matni shu yerda ko'rinadi...</i>
+          </div>
+          <div style="font-size:.65rem;color:#999;text-align:right;margin-top:6px">12:00 ✓✓</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ko'rsatmalar -->
+    <div class="card mb-3">
+      <div class="card-header bg-transparent border-bottom py-2 px-3">
+        <h6 class="mb-0 small fw-bold">
+          <i class="fas fa-circle-info me-2 text-info"></i>Ko'rsatmalar
+        </h6>
+      </div>
+      <div class="card-body p-3">
+        <div class="d-flex flex-column gap-2" style="font-size:.83rem">
+          <div class="d-flex gap-2">
+            <span style="color:#10b981">✓</span>
+            <span>Xabar yuborilmasa, <b>Yuborilmaganlar</b> bo'limida ko'rinadi</span>
+          </div>
+          <div class="d-flex gap-2">
+            <span style="color:#10b981">✓</span>
+            <span>Faqat botga ulangan foydalanuvchilarga yetib boradi</span>
+          </div>
+          <div class="d-flex gap-2">
+            <span style="color:#10b981">✓</span>
+            <span>Tutor "to'lagan" deb tasdiqlagan talabalar o'tkazib yuboriladi</span>
+          </div>
+          <div class="d-flex gap-2">
+            <span style="color:#f59e0b">⚠</span>
+            <span>Katta guruhlar uchun yuborish bir necha soniya olishi mumkin</span>
+          </div>
+          <div class="d-flex gap-2">
+            <span style="color:#f59e0b">⚠</span>
+            <span>Ota-onaga yuborish uchun ular OTP orqali tasdiqlangan bo'lishi shart</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- So'nggi xabarnoma xatolari -->
+    {% if failures_count > 0 %}
+    <div class="card" style="border-left:4px solid #ef4444">
+      <div class="card-header bg-transparent border-bottom py-2 px-3 d-flex justify-content-between">
+        <h6 class="mb-0 small fw-bold" style="color:#dc2626">
+          <i class="fas fa-triangle-exclamation me-2"></i>
+          Yuborilmagan foydalanuvchilar: {{ failures_count }} ta
+        </h6>
+        <a href="{% url 'dashboard:notification_failures' %}" class="btn btn-sm btn-outline-danger" style="font-size:.72rem;padding:2px 8px">
+          Ko'rish
+        </a>
+      </div>
+      <div class="card-body p-3 small text-muted">
+        Bu foydalanuvchilarga xabar yetib bormagan (bot bloklangan yoki Telegram ID noto'g'ri).
+        Ularni ko'rish va boshqarish uchun "Yuborilmaganlar" bo'limiga o'ting.
+      </div>
+    </div>
+    {% else %}
+    <div class="card p-3 text-center" style="border-left:4px solid #10b981">
+      <i class="fas fa-circle-check text-success me-2"></i>
+      <span class="small text-muted">Xabarnoma xatolari yo'q — hammasi yaxshi!</span>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function updateLabels() {
+  document.querySelectorAll('.group-checkbox-label').forEach(lbl => {
+    const cb = lbl.querySelector('input[type=checkbox]');
+    lbl.classList.toggle('checked', cb.checked);
+  });
+}
+
+function updatePreview() {
+  const text = document.getElementById('msgText').value;
+  document.getElementById('charCount').textContent = text.length + ' belgi';
+  // Simple HTML preview (sanitized)
+  const safe = text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/&lt;b&gt;(.*?)&lt;\/b&gt;/g,'<b>$1</b>')
+    .replace(/&lt;i&gt;(.*?)&lt;\/i&gt;/g,'<i>$1</i>')
+    .replace(/&lt;code&gt;(.*?)&lt;\/code&gt;/g,'<code>$1</code>');
+  document.getElementById('msgPreview').innerHTML =
+    '📢 <b>Xabarnoma</b>\n\nHurmatli <b>[Talaba ismi]</b>,\n\n' + safe;
+}
+
+// Init
+updateLabels();
+updatePreview();
+</script>
+{% endblock %}

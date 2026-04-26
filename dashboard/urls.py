@@ -24,6 +24,12 @@ urlpatterns = [
     # Xabarnoma xatolari
     path('notification-failures/', views.NotificationFailuresView.as_view(), name='notification_failures'),
 
+    # Xabarnoma yuborish (bulk campaign)
+    path('campaigns/send/', views.CampaignSendView.as_view(), name='campaign_send'),
+
+    # To'lov statistikasi
+    path('payment-stats/', views.PaymentStatsView.as_view(), name='payment_stats'),
+
     # Excel import
     path('excel-import/', views.ExcelImportView.as_view(), name='excel_import'),
 
