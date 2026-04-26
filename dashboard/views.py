@@ -505,140 +505,158 @@ class PaymentStatsView(View):
 
         # Filters
         group_filter  = request.GET.get('group', '').strip()
-        tier_filter   = request.GET.get('tier', '').strip()    # 0/25/50/75/100/''
-        search        = request.GET.get('q', '').strip()
-        sort_by       = request.GET.get('sort', 'pct')         # pct / paid / debt / name
-        sort_dir      = request.GET.get('dir', 'desc')
+        display_mode  = request.GET.get('mode', 'count')    # count | pct
+        view_mode     = request.GET.get('view', 'simple')   # simple | detail
         do_export     = request.GET.get('export', '')
+
+        # Detail view filters
+        tier_filter   = request.GET.get('tier', '').strip()
+        search        = request.GET.get('q', '').strip()
+        sort_by       = request.GET.get('sort', 'pct')
+        sort_dir      = request.GET.get('dir', 'desc')
 
         groups_qs = all_groups
         if group_filter:
             groups_qs = groups_qs.filter(pk=group_filter)
 
-        students_qs = (
-            Student.objects
-            .filter(group__in=groups_qs)
-            .select_related('group')
-            .prefetch_related('contracts')
+        # ─── Joriy holat (live) ─── always calculated, used in simple view
+        current_tier_counts = _current_tier_counts(groups_qs, current_year)
+
+        # ─── Snapshot history (for simple view) ───
+        snap_qs = PaymentSnapshot.objects.filter(
+            academic_year=current_year, group__in=groups_qs
         )
-        if search:
-            students_qs = students_qs.filter(
-                Q(full_name__icontains=search) | Q(student_id__icontains=search)
-            )
-
-        # Build rows with tier info
-        rows = []
-        for student in students_qs:
-            contract = student.contracts.filter(academic_year=current_year).first()
-            pct  = _calc_pct(contract)
-            tier = _calc_tier(pct)
-            paid  = float(contract.paid_amount)      if contract else 0
-            total = float(contract.contract_amount)  if contract else 0
-            debt  = float(contract.debt_amount)      if contract else 0
-            rows.append({
-                'student': student,
-                'contract': contract,
-                'pct': round(min(pct, 100), 1),
-                'tier': tier,
-                'paid': paid,
-                'total': total,
-                'debt': debt,
-            })
-
-        # Tier filter
-        if tier_filter != '':
-            try:
-                tf = int(tier_filter)
-                rows = [r for r in rows if r['tier'] == tf]
-            except ValueError:
-                pass
-
-        # Sort
-        sort_map = {'pct': 'pct', 'paid': 'paid', 'debt': 'debt', 'name': None}
-        reverse = (sort_dir == 'desc')
-        if sort_by == 'name':
-            rows.sort(key=lambda r: r['student'].full_name, reverse=reverse)
-        elif sort_by in sort_map:
-            rows.sort(key=lambda r: r.get(sort_by, 0), reverse=reverse)
-
-        # Excel export
-        if do_export == 'xlsx':
-            return self._export_excel(rows, current_year)
-
-        # Tier counts (all accessible, no tier-filter applied)
-        tier_counts = _current_tier_counts(all_groups, current_year)
-
-        # Snapshot history
-        snap_qs = PaymentSnapshot.objects.filter(academic_year=current_year)
-        if group_filter:
-            snap_qs = snap_qs.filter(group__pk=group_filter)
-        else:
-            snap_qs = snap_qs.filter(group__in=all_groups)
-        snapshot_rows = (
+        snapshot_rows = list(
             snap_qs
             .values('snapshot_date')
-            .annotate(t25=Sum('tier_25'), t50=Sum('tier_50'), t75=Sum('tier_75'), t100=Sum('tier_100'))
-            .order_by('-snapshot_date')[:15]
+            .annotate(
+                t25=Sum('tier_25'), t50=Sum('tier_50'),
+                t75=Sum('tier_75'), t100=Sum('tier_100'),
+            )
+            .order_by('-snapshot_date')[:20]
         )
 
-        # Pagination
-        paginator = Paginator(rows, 100)
-        page_obj  = paginator.get_page(request.GET.get('page', 1))
+        # ─── Detail view (only built if needed) ───
+        page_obj = None
+        total_rows = 0
+        rows = []
 
-        next_dir = 'asc' if reverse else 'desc'
+        if view_mode == 'detail' or do_export:
+            students_qs = (
+                Student.objects
+                .filter(group__in=groups_qs)
+                .select_related('group')
+                .prefetch_related('contracts')
+            )
+            if search:
+                students_qs = students_qs.filter(
+                    Q(full_name__icontains=search) | Q(student_id__icontains=search)
+                )
+
+            for student in students_qs:
+                contract = student.contracts.filter(academic_year=current_year).first()
+                pct  = _calc_pct(contract)
+                tier = _calc_tier(pct)
+                paid  = float(contract.paid_amount)     if contract else 0
+                total = float(contract.contract_amount) if contract else 0
+                debt  = float(contract.debt_amount)     if contract else 0
+                rows.append({
+                    'student': student, 'contract': contract,
+                    'pct': round(min(pct, 100), 1),
+                    'tier': tier, 'paid': paid, 'total': total, 'debt': debt,
+                })
+
+            if tier_filter != '':
+                try:
+                    tf = int(tier_filter)
+                    rows = [r for r in rows if r['tier'] == tf]
+                except ValueError:
+                    pass
+
+            reverse = (sort_dir == 'desc')
+            if sort_by == 'name':
+                rows.sort(key=lambda r: r['student'].full_name, reverse=reverse)
+            elif sort_by in ('pct', 'paid', 'debt'):
+                rows.sort(key=lambda r: r.get(sort_by, 0), reverse=reverse)
+
+            total_rows = len(rows)
+
+            if do_export == 'xlsx':
+                return self._export_excel(rows, snapshot_rows, current_tier_counts, current_year)
+
+            paginator = Paginator(rows, 100)
+            page_obj  = paginator.get_page(request.GET.get('page', 1))
+
+        next_dir = 'asc' if sort_dir == 'desc' else 'desc'
         context = {
-            'page_obj': page_obj,
-            'current_year': current_year,
             'all_groups': all_groups,
             'group_filter': group_filter,
-            'tier_filter': tier_filter,
+            'display_mode': display_mode,
+            'view_mode': view_mode,
+            'current_tier_counts': current_tier_counts,
+            'snapshot_rows': snapshot_rows,
+            'page_obj': page_obj,
+            'total_rows': total_rows,
             'search': search,
+            'tier_filter': tier_filter,
             'sort_by': sort_by,
             'sort_dir': sort_dir,
             'next_dir': next_dir,
-            'tier_counts': tier_counts,
-            'snapshot_rows': snapshot_rows,
-            'total_rows': len(rows),
+            'current_year': current_year,
         }
         return render(request, 'dashboard/payment_stats.html', context)
 
-    # ---- Excel export ----
-    def _export_excel(self, rows, academic_year):
+    # ---- Excel export (2 sheet: snapshot + students) ----
+    def _export_excel(self, rows, snapshot_rows, current_tier_counts, academic_year):
         wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "To'lov statistikasi"
-
-        # Header style
         hdr_fill = PatternFill("solid", fgColor="1E293B")
         hdr_font = Font(bold=True, color="FFFFFF")
+        center   = Alignment(horizontal='center')
 
-        headers = ['#', 'F.I.O', 'ID', 'Guruh', 'Kurs', "Kontrakt (so'm)", "To'langan (so'm)", "Qarz (so'm)", "Foiz (%)", "Tier"]
-        for col, h in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col, value=h)
-            cell.fill = hdr_fill
-            cell.font = hdr_font
-            cell.alignment = Alignment(horizontal='center')
+        # ───── Sheet 1: Snapshot tarixi ─────
+        ws1 = wb.active
+        ws1.title = "To'lov dinamikasi"
+        snap_headers = ['Sana', "25% to'lov", "50% to'lov", "75% to'lov", "100% to'lov", "Jami"]
+        for col, h in enumerate(snap_headers, 1):
+            cell = ws1.cell(row=1, column=col, value=h)
+            cell.fill, cell.font, cell.alignment = hdr_fill, hdr_font, center
 
-        tier_labels = {0: 'Toʻlamagan', 25: '25% tier', 50: '50% tier', 75: '75% tier', 100: '100% tier'}
-        for i, r in enumerate(rows, 1):
-            s = r['student']
-            c = r['contract']
-            ws.append([
-                i,
-                s.full_name,
-                s.student_id,
-                s.group.name if s.group else '',
-                c.course_level if c else '',
-                r['total'],
-                r['paid'],
-                r['debt'],
-                r['pct'],
-                tier_labels.get(r['tier'], ''),
+        # Joriy holat birinchi qator
+        t = current_tier_counts
+        ws1.append(['Joriy holat', t.get(25,0), t.get(50,0), t.get(75,0), t.get(100,0),
+                    t.get(0,0)+t.get(25,0)+t.get(50,0)+t.get(75,0)+t.get(100,0)])
+
+        for row in snapshot_rows:
+            total = row['t25'] + row['t50'] + row['t75'] + row['t100']
+            ws1.append([
+                row['snapshot_date'].strftime('%d.%m.%Y'),
+                row['t25'], row['t50'], row['t75'], row['t100'], total,
             ])
 
-        # Column widths
-        for col_idx, width in enumerate([5, 30, 15, 12, 7, 18, 18, 18, 10, 12], 1):
-            ws.column_dimensions[get_column_letter(col_idx)].width = width
+        for col_idx, width in enumerate([16, 14, 14, 14, 14, 10], 1):
+            ws1.column_dimensions[get_column_letter(col_idx)].width = width
+
+        # ───── Sheet 2: Talabalar ro'yxati ─────
+        ws2 = wb.create_sheet("Talabalar")
+        headers = ['#', 'F.I.O', 'ID', 'Guruh', 'Kurs',
+                   "Kontrakt (so'm)", "To'langan (so'm)", "Qarz (so'm)", "Foiz (%)", "Tier"]
+        for col, h in enumerate(headers, 1):
+            cell = ws2.cell(row=1, column=col, value=h)
+            cell.fill, cell.font, cell.alignment = hdr_fill, hdr_font, center
+
+        tier_labels = {0: 'Toʻlamagan (<25%)', 25: '25% tier', 50: '50% tier',
+                       75: '75% tier', 100: '100% tier'}
+        for i, r in enumerate(rows, 1):
+            s, c = r['student'], r['contract']
+            ws2.append([
+                i, s.full_name, s.student_id,
+                s.group.name if s.group else '',
+                c.course_level if c else '',
+                r['total'], r['paid'], r['debt'], r['pct'],
+                tier_labels.get(r['tier'], ''),
+            ])
+        for col_idx, width in enumerate([5, 30, 15, 12, 7, 18, 18, 18, 10, 18], 1):
+            ws2.column_dimensions[get_column_letter(col_idx)].width = width
 
         output = io.BytesIO()
         wb.save(output)
