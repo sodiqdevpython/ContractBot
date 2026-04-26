@@ -7,8 +7,8 @@ from django.contrib import messages
 from django.db import transaction
 from django.db.models import Sum, Count, Q
 
-from users.models import Group, Student, StudentContract, Payment, current_academic_year
-from .models import TutorPaymentConfirmation
+from users.models import Group, Student, StudentContract, Payment, StudentParent, Parent, current_academic_year
+from .models import TutorPaymentConfirmation, ParentTutorVerification, NotificationFailure
 from .excel_parser import parse_multi_group_excel
 from .forms import LoginForm, ExcelImportForm, ConfirmPaymentForm
 
@@ -455,3 +455,172 @@ class AdminOverviewView(View):
             'groups_count': all_groups.count(),
         }
         return render(request, 'dashboard/admin_overview.html', context)
+
+
+# ---------------------------------------------------------------------------
+# Ota-onalar sahifasi
+# ---------------------------------------------------------------------------
+
+@method_decorator(login_required(login_url='/dashboard/login/'), name='dispatch')
+class ParentsView(View):
+    def get(self, request):
+        groups = get_accessible_groups(request.user)
+
+        # Filtrlar
+        search        = request.GET.get('q', '').strip()
+        group_filter  = request.GET.get('group', '')
+        status_filter = request.GET.get('status', '')  # verified, pending_otp, no_parent, tutor_verified
+
+        if group_filter:
+            groups = groups.filter(pk=group_filter)
+
+        students_qs = Student.objects.filter(
+            group__in=groups
+        ).select_related('group').prefetch_related(
+            'parents__parent',
+            'parents__tutor_verification',
+        )
+
+        if search:
+            students_qs = students_qs.filter(
+                Q(full_name__icontains=search) |
+                Q(student_id__icontains=search) |
+                Q(parents__parent__phone_number__icontains=search) |
+                Q(parents__parent__full_name__icontains=search)
+            ).distinct()
+
+        rows = []
+        for student in students_qs:
+            relations = list(student.parents.all())
+
+            if status_filter == 'no_parent' and relations:
+                continue
+            if status_filter == 'no_parent' and not relations:
+                rows.append({'student': student, 'relations': [], 'no_parent': True})
+                continue
+
+            filtered_rels = []
+            for rel in relations:
+                tutor_ver = getattr(rel, 'tutor_verification', None)
+                rel_data = {
+                    'rel': rel,
+                    'tutor_verified': tutor_ver is not None,
+                    'tutor_ver': tutor_ver,
+                }
+                if status_filter == 'tutor_verified' and not rel_data['tutor_verified']:
+                    continue
+                if status_filter == 'verified' and rel.status != 'verified':
+                    continue
+                if status_filter == 'pending_otp' and rel.status != 'pending_otp':
+                    continue
+                filtered_rels.append(rel_data)
+
+            if status_filter in ('verified', 'pending_otp', 'tutor_verified') and not filtered_rels:
+                continue
+
+            rows.append({
+                'student': student,
+                'relations': filtered_rels,
+                'no_parent': len(relations) == 0,
+            })
+
+        all_groups = get_accessible_groups(request.user)
+        context = {
+            'rows': rows,
+            'search': search,
+            'group_filter': group_filter,
+            'status_filter': status_filter,
+            'all_groups': all_groups,
+        }
+        return render(request, 'dashboard/parents.html', context)
+
+
+@method_decorator(login_required(login_url='/dashboard/login/'), name='dispatch')
+class VerifyParentView(View):
+    """Tutor ota-onani maksimal darajada tasdiqlaydi."""
+    def post(self, request, sp_id):
+        sp = get_object_or_404(StudentParent, pk=sp_id)
+
+        # Kirish huquqini tekshirish
+        if not can_access_student(request.user, sp.student):
+            messages.error(request, "Sizda bu talabaga kirish huquqi yo'q.")
+            return redirect('dashboard:parents')
+
+        note = request.POST.get('note', '').strip()
+        ParentTutorVerification.objects.update_or_create(
+            student_parent=sp,
+            defaults={'verified_by': request.user, 'note': note}
+        )
+        messages.success(
+            request,
+            f"{sp.parent.full_name or sp.parent.phone_number} — tutor tomonidan maksimal darajada tasdiqlandi."
+        )
+        return redirect(request.POST.get('next', 'dashboard:parents'))
+
+
+@method_decorator(login_required(login_url='/dashboard/login/'), name='dispatch')
+class UnverifyParentView(View):
+    """Tutor tasdiqlashini bekor qiladi."""
+    def post(self, request, sp_id):
+        sp = get_object_or_404(StudentParent, pk=sp_id)
+
+        if not can_access_student(request.user, sp.student):
+            messages.error(request, "Sizda bu talabaga kirish huquqi yo'q.")
+            return redirect('dashboard:parents')
+
+        ParentTutorVerification.objects.filter(student_parent=sp).delete()
+        messages.info(request, "Tutor tasdiqlashi bekor qilindi.")
+        return redirect(request.POST.get('next', 'dashboard:parents'))
+
+
+# ---------------------------------------------------------------------------
+# Xabarnoma xatolari
+# ---------------------------------------------------------------------------
+
+@method_decorator(login_required(login_url='/dashboard/login/'), name='dispatch')
+class NotificationFailuresView(View):
+    def get(self, request):
+        type_filter = request.GET.get('type', '')  # student | parent | ''
+        search      = request.GET.get('q', '').strip()
+
+        failures_qs = NotificationFailure.objects.select_related(
+            'student__group', 'parent', 'campaign'
+        )
+
+        # Tutor faqat o'z guruhidagilarni ko'radi
+        if not request.user.is_staff:
+            accessible_groups = get_accessible_groups(request.user)
+            failures_qs = failures_qs.filter(
+                Q(student__group__in=accessible_groups) |
+                Q(parent__students__student__group__in=accessible_groups)
+            ).distinct()
+
+        if type_filter == 'student':
+            failures_qs = failures_qs.filter(recipient_type='student')
+        elif type_filter == 'parent':
+            failures_qs = failures_qs.filter(recipient_type='parent')
+
+        if search:
+            failures_qs = failures_qs.filter(
+                Q(student__full_name__icontains=search) |
+                Q(student__student_id__icontains=search) |
+                Q(parent__full_name__icontains=search) |
+                Q(parent__phone_number__icontains=search)
+            )
+
+        context = {
+            'failures': failures_qs,
+            'type_filter': type_filter,
+            'search': search,
+            'student_count': NotificationFailure.objects.filter(recipient_type='student').count(),
+            'parent_count': NotificationFailure.objects.filter(recipient_type='parent').count(),
+        }
+        return render(request, 'dashboard/notification_failures.html', context)
+
+    def post(self, request):
+        """Xato yozuvini qo'lda o'chirish (hal qilingan deb belgilash)."""
+        failure_id = request.POST.get('failure_id')
+        if failure_id:
+            NotificationFailure.objects.filter(pk=failure_id).delete()
+            messages.success(request, "Yozuv o'chirildi.")
+        return redirect('dashboard:notification_failures')

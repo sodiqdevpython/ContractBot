@@ -148,8 +148,14 @@
     <a href="{% url 'dashboard:groups' %}" class="{% block nav_groups %}{% endblock %}">
       <i class="fas fa-users"></i> Guruhlar
     </a>
+    <a href="{% url 'dashboard:parents' %}" class="{% block nav_parents %}{% endblock %}">
+      <i class="fas fa-people-roof"></i> Ota-onalar
+    </a>
     <a href="{% url 'dashboard:excel_import' %}" class="{% block nav_excel %}{% endblock %}">
       <i class="fas fa-file-excel"></i> Excel import
+    </a>
+    <a href="{% url 'dashboard:notification_failures' %}" class="{% block nav_failures %}{% endblock %}">
+      <i class="fas fa-bell-slash"></i> Xabarnoma xatolari
     </a>
   </nav>
 

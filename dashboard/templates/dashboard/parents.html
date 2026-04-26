@@ -1,0 +1,353 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Ota-onalar{% endblock %}
+{% block page_title %}Ota-onalar{% endblock %}
+{% block nav_parents %}active{% endblock %}
+
+{% block extra_head %}
+<style>
+  .student-block {
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    margin-bottom: 1rem;
+    overflow: hidden;
+  }
+  .student-header {
+    background: #f8fafc;
+    padding: .65rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .parent-row {
+    display: grid;
+    grid-template-columns: 2fr 1.5fr 1.2fr 1fr 1fr auto;
+    gap: .75rem;
+    align-items: center;
+    padding: .65rem 1rem;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: .85rem;
+  }
+  .parent-row:last-child { border-bottom: none; }
+  .parent-row:hover { background: #fafbff; }
+  .no-parent-row {
+    padding: .75rem 1rem;
+    color: #94a3b8;
+    font-size: .83rem;
+    font-style: italic;
+  }
+  .tg-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 4px;
+  }
+  .tg-ok   { background: #10b981; }
+  .tg-no   { background: #ef4444; }
+  .tg-none { background: #cbd5e1; }
+
+  .badge-max   { background: #fef3c7; color: #92400e; border-radius:20px; padding:2px 9px; font-size:.73rem; font-weight:600; }
+  .badge-ver   { background: #d1fae5; color: #065f46; border-radius:20px; padding:2px 9px; font-size:.73rem; font-weight:600; }
+  .badge-pend  { background: #dbeafe; color: #1e40af; border-radius:20px; padding:2px 9px; font-size:.73rem; font-weight:600; }
+  .badge-rej   { background: #fee2e2; color: #991b1b; border-radius:20px; padding:2px 9px; font-size:.73rem; font-weight:600; }
+
+  .col-header {
+    display: grid;
+    grid-template-columns: 2fr 1.5fr 1.2fr 1fr 1fr auto;
+    gap: .75rem;
+    padding: .4rem 1rem;
+    background: #f1f5f9;
+    font-size: .72rem;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+</style>
+{% endblock %}
+
+{% block topbar_right %}
+  <span class="badge bg-light text-muted">{{ rows|length }} ta talaba</span>
+{% endblock %}
+
+{% block content %}
+
+<!-- Filter paneli -->
+<div class="card mb-4">
+  <div class="card-body p-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-sm-4">
+        <label class="form-label small fw-semibold text-muted mb-1">Qidiruv</label>
+        <div class="input-group input-group-sm">
+          <span class="input-group-text"><i class="fas fa-search"></i></span>
+          <input type="text" name="q" class="form-control" placeholder="Ism, ID, telefon..."
+                 value="{{ search }}">
+        </div>
+      </div>
+      <div class="col-sm-3">
+        <label class="form-label small fw-semibold text-muted mb-1">Guruh</label>
+        <select name="group" class="form-select form-select-sm">
+          <option value="">Barcha guruhlar</option>
+          {% for g in all_groups %}
+          <option value="{{ g.pk }}" {% if group_filter == g.pk|stringformat:"s" %}selected{% endif %}>
+            {{ g.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-3">
+        <label class="form-label small fw-semibold text-muted mb-1">Status</label>
+        <select name="status" class="form-select form-select-sm">
+          <option value="">Barchasi</option>
+          <option value="tutor_verified" {% if status_filter == 'tutor_verified' %}selected{% endif %}>Tutor tasdiqlagan (MAX)</option>
+          <option value="verified"       {% if status_filter == 'verified'       %}selected{% endif %}>OTP tasdiqlangan</option>
+          <option value="pending_otp"    {% if status_filter == 'pending_otp'    %}selected{% endif %}>OTP kutilmoqda</option>
+          <option value="no_parent"      {% if status_filter == 'no_parent'      %}selected{% endif %}>Ota-onasiz</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-primary btn-sm">
+          <i class="fas fa-filter me-1"></i>Filter
+        </button>
+        {% if search or group_filter or status_filter %}
+        <a href="{% url 'dashboard:parents' %}" class="btn btn-light btn-sm ms-1">
+          <i class="fas fa-xmark"></i>
+        </a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Izoh chiziqchalar -->
+<div class="d-flex flex-wrap gap-3 mb-3 small text-muted">
+  <span><span class="tg-dot tg-ok"></span>Telegram bot ulangan</span>
+  <span><span class="tg-dot tg-no"></span>Bot ulanmagan yoki bloklangan</span>
+  <span><span class="tg-dot tg-none"></span>Telegram ID yo'q</span>
+  <span><span class="badge-max">⭐ MAX</span> Tutor shaxsan tasdiqlagan</span>
+  <span><span class="badge-ver">✓ OTP</span> OTP orqali tasdiqlangan</span>
+</div>
+
+<!-- Sarlavha (faqat katta ekran uchun) -->
+<div class="col-header d-none d-md-grid mb-1 rounded">
+  <span>Ota-ona</span>
+  <span>Telefon</span>
+  <span>Telegram</span>
+  <span>Status</span>
+  <span>Tasdiqlash</span>
+  <span>Amal</span>
+</div>
+
+{% for item in rows %}
+<div class="student-block">
+  <!-- Talaba sarlavhasi -->
+  <div class="student-header">
+    <div class="d-flex align-items-center gap-2">
+      <div class="rounded-circle d-flex align-items-center justify-content-center fw-bold text-white flex-shrink-0"
+           style="width:30px;height:30px;background:#6366f1;font-size:.75rem">
+        {{ item.student.full_name|first|upper }}
+      </div>
+      <div>
+        <a href="{% url 'dashboard:student_detail' item.student.pk %}"
+           class="fw-semibold text-decoration-none" style="color:#1e293b;font-size:.9rem">
+          {{ item.student.full_name }}
+        </a>
+        <span class="text-muted ms-2" style="font-size:.75rem">
+          <code>{{ item.student.student_id }}</code>
+        </span>
+        {% if item.student.group %}
+        <span class="ms-2 badge bg-light text-muted" style="font-size:.7rem">{{ item.student.group.name }}</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <!-- Talabaning TG holati -->
+      {% if item.student.telegram_id %}
+        <span class="small"><span class="tg-dot tg-ok"></span>Bot ulangan</span>
+      {% else %}
+        <span class="small text-muted"><span class="tg-dot tg-none"></span>Bot ulanmagan</span>
+      {% endif %}
+      <span class="badge bg-light text-muted" style="font-size:.72rem">
+        {{ item.relations|length }} ota-ona
+      </span>
+    </div>
+  </div>
+
+  <!-- Ota-onalar -->
+  {% if item.no_parent %}
+  <div class="no-parent-row">
+    <i class="fas fa-user-slash me-2"></i>Ota-onasi ulanmagan
+  </div>
+  {% elif not item.relations %}
+  <div class="no-parent-row">
+    <i class="fas fa-filter me-2"></i>Filter bo'yicha ota-ona topilmadi
+  </div>
+  {% else %}
+    {% for rd in item.relations %}
+    <div class="parent-row">
+
+      <!-- Ota-ona ismi va roli -->
+      <div>
+        <div class="fw-semibold" style="color:#1e293b">
+          {{ rd.rel.parent.full_name|default:rd.rel.parent.tg_first_name|default:"—" }}
+          {% if rd.rel.parent.tg_last_name %}{{ rd.rel.parent.tg_last_name }}{% endif %}
+        </div>
+        <div class="text-muted" style="font-size:.75rem">
+          {{ rd.rel.get_role_display }}
+          {% if rd.rel.custom_role_name %} — {{ rd.rel.custom_role_name }}{% endif %}
+          {% if rd.rel.parent.tg_username %}
+            · <span style="color:#6366f1">@{{ rd.rel.parent.tg_username }}</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Telefon -->
+      <div style="color:#374151">
+        <i class="fas fa-phone me-1 text-muted" style="font-size:.75rem"></i>
+        {{ rd.rel.parent.phone_number }}
+      </div>
+
+      <!-- Telegram holati -->
+      <div>
+        {% if rd.rel.parent.telegram_id %}
+          <span class="tg-dot tg-ok"></span>
+          <span style="font-size:.8rem; color:#059669">Ulangan</span>
+          <div style="font-size:.7rem; color:#94a3b8">ID: {{ rd.rel.parent.telegram_id }}</div>
+        {% else %}
+          <span class="tg-dot tg-none"></span>
+          <span style="font-size:.8rem; color:#94a3b8">Ulanmagan</span>
+        {% endif %}
+      </div>
+
+      <!-- OTP holati -->
+      <div>
+        {% if rd.rel.status == 'verified' %}
+          <span class="badge-ver"><i class="fas fa-check me-1"></i>OTP ✓</span>
+        {% elif rd.rel.status == 'pending_otp' %}
+          <span class="badge-pend">OTP kutmoqda</span>
+        {% elif rd.rel.status == 'pending_admin' %}
+          <span class="badge-pend">Admin kutmoqda</span>
+        {% elif rd.rel.status == 'rejected' %}
+          <span class="badge-rej">Rad etilgan</span>
+        {% endif %}
+      </div>
+
+      <!-- Tutor tasdiqlash -->
+      <div>
+        {% if rd.tutor_verified %}
+          <span class="badge-max"><i class="fas fa-star me-1"></i>MAX</span>
+          <div style="font-size:.7rem; color:#94a3b8; margin-top:2px">
+            {{ rd.tutor_ver.verified_by.get_full_name|default:rd.tutor_ver.verified_by.username }}
+            · {{ rd.tutor_ver.verified_at|date:"d.m.Y" }}
+          </div>
+        {% else %}
+          <span style="color:#cbd5e1; font-size:.8rem">—</span>
+        {% endif %}
+      </div>
+
+      <!-- Amallar -->
+      <div class="d-flex gap-1 flex-shrink-0">
+        {% if rd.tutor_verified %}
+        <!-- Tasdiqlashni bekor qilish -->
+        <form method="post" action="{% url 'dashboard:unverify_parent' rd.rel.pk %}">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{% url 'dashboard:parents' %}?q={{ search }}&group={{ group_filter }}&status={{ status_filter }}">
+          <button type="submit" class="btn btn-sm btn-outline-warning"
+                  title="Tasdiqlashni bekor qilish"
+                  onclick="return confirm('Tutor tasdiqlashini bekor qilmoqchimisiz?')">
+            <i class="fas fa-star-half-stroke"></i>
+          </button>
+        </form>
+        {% else %}
+        <!-- Maksimal darajada tasdiqlash -->
+        <button class="btn btn-sm btn-outline-success"
+                title="Tutor tomonidan maksimal tasdiqlash"
+                data-bs-toggle="modal"
+                data-bs-target="#verifyModal"
+                data-sp-id="{{ rd.rel.pk }}"
+                data-parent-name="{{ rd.rel.parent.full_name|default:rd.rel.parent.tg_first_name|default:rd.rel.parent.phone_number }}"
+                data-student-name="{{ item.student.full_name }}"
+                data-role="{{ rd.rel.get_role_display }}">
+          <i class="fas fa-star"></i>
+        </button>
+        {% endif %}
+
+        <!-- Talaba sahifasiga o'tish -->
+        <a href="{% url 'dashboard:student_detail' item.student.pk %}"
+           class="btn btn-sm btn-outline-secondary" title="Talaba sahifasi">
+          <i class="fas fa-arrow-up-right-from-square"></i>
+        </a>
+      </div>
+    </div>
+    {% endfor %}
+  {% endif %}
+</div>
+{% empty %}
+<div class="card p-5 text-center text-muted">
+  <i class="fas fa-people-roof fa-3x mb-3"></i>
+  <h5>Natija topilmadi</h5>
+  <p class="small">Filter yoki qidiruvni o'zgartiring.</p>
+</div>
+{% endfor %}
+
+<!-- ═══ Tutor tasdiqlash modali ═══ -->
+<div class="modal fade" id="verifyModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="border-radius:16px; border:none">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title">
+          <i class="fas fa-star text-warning me-2"></i>Maksimal darajada tasdiqlash
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" id="verifyForm" action="">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{% url 'dashboard:parents' %}?q={{ search }}&group={{ group_filter }}&status={{ status_filter }}">
+        <div class="modal-body">
+          <div class="alert alert-warning small d-flex gap-2 mb-3">
+            <i class="fas fa-star mt-1"></i>
+            <div>
+              <b>MAX daraja</b> — tutor bu ota-onani shaxsan ko'rgan yoki gaplashgan.
+              Bu — eng yuqori ishonch darajasi.
+            </div>
+          </div>
+          <div class="p-3 rounded mb-3" style="background:#f8fafc; border:1px solid #e2e8f0">
+            <div id="modalParentName" class="fw-semibold"></div>
+            <div id="modalStudentInfo" class="text-muted small"></div>
+          </div>
+          <div>
+            <label class="form-label small fw-semibold">Izoh (ixtiyoriy)</label>
+            <textarea name="note" class="form-control" rows="2"
+                      placeholder="Masalan: Talaba bilan birga keldi, hujjatini ko'rdim"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Bekor</button>
+          <button type="submit" class="btn btn-warning text-dark fw-semibold">
+            <i class="fas fa-star me-1"></i>Tasdiqlash (MAX)
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const verifyModal = document.getElementById('verifyModal');
+  verifyModal.addEventListener('show.bs.modal', function(event) {
+    const btn = event.relatedTarget;
+    const spId        = btn.dataset.spId;
+    const parentName  = btn.dataset.parentName;
+    const studentName = btn.dataset.studentName;
+    const role        = btn.dataset.role;
+
+    document.getElementById('modalParentName').textContent = parentName + ' (' + role + ')';
+    document.getElementById('modalStudentInfo').textContent = 'Talaba: ' + studentName;
+    document.getElementById('verifyForm').action = '/dashboard/parents/verify/' + spId + '/';
+  });
+</script>
+{% endblock %}
