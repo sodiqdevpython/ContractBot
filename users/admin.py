@@ -102,10 +102,10 @@ class ExcelImportForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Formada Namuna faylini yuklab olish uchun HTML link
-        self.fields['file'].help_text = mark_safe(
-            "<br><a href='/media/namuna.xlsx' download style='color:#fff; background:#417690; padding:5px 10px; border-radius:4px; text-decoration:none; font-weight:bold;'>📥 Namuna shablonni yuklab olish</a>"
-            "<br><br><i>Faqat .xlsx formatida va namunadagi kabi roppa-rosa '1, 2, 3, 4, 5, 6' raqamlangan ustunlardan iborat bo'lishi shart!</i>"
-        )
+        # self.fields['file'].help_text = mark_safe(
+        #     "<br><a href='/media/namuna.xlsx' download style='color:#fff; background:#417690; padding:5px 10px; border-radius:4px; text-decoration:none; font-weight:bold;'>📥 Namuna shablonni yuklab olish</a>"
+        #     "<br><br><i>Faqat .xlsx formatida va namunadagi kabi roppa-rosa '1, 2, 3, 4, 5, 6' raqamlangan ustunlardan iborat bo'lishi shart!</i>"
+        # )
 
     def clean_file(self):
         file = self.cleaned_data.get('file')

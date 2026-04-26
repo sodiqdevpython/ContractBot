@@ -119,7 +119,7 @@ class Parent(models.Model):
 class StudentParent(models.Model):
     STATUS_CHOICES = (
         ('pending_otp', 'OTP kutilmoqda'),
-        ('pending_admin', 'Admin tasdiqlashi kutilmoqda'),
+        ('pending_admin', 'Admin tasdiqlagan'),
         ('verified', 'Tasdiqlangan'),
         ('rejected', 'Rad etilgan (Qora ro\'yxat)'),
     )
