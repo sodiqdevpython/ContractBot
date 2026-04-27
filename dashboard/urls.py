@@ -33,6 +33,9 @@ urlpatterns = [
     # Excel import
     path('excel-import/', views.ExcelImportView.as_view(), name='excel_import'),
 
+    # Excel shablon yuklab olish
+    path('excel-template/', views.ExcelTemplateView.as_view(), name='excel_template'),
+
     # Admin
     path('admin-overview/', views.AdminOverviewView.as_view(), name='admin_overview'),
 ]

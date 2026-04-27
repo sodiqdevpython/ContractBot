@@ -1,6 +1,7 @@
 import io
+import json
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 from django.shortcuts import render, redirect, get_object_or_404
@@ -536,6 +537,26 @@ class PaymentStatsView(View):
             .order_by('-snapshot_date')[:20]
         )
 
+        # ─── Delta (o'sish hisoblash) ───
+        for i, row in enumerate(snapshot_rows):
+            if i + 1 < len(snapshot_rows):
+                prev = snapshot_rows[i + 1]
+                row['d25']  = row['t25']  - prev['t25']
+                row['d50']  = row['t50']  - prev['t50']
+                row['d75']  = row['t75']  - prev['t75']
+                row['d100'] = row['t100'] - prev['t100']
+            else:
+                row['d25'] = row['d50'] = row['d75'] = row['d100'] = None
+
+        # ─── Chart data (oldest → newest) ───
+        chart_list = list(reversed(snapshot_rows))
+        t = current_tier_counts
+        chart_labels = [r['snapshot_date'].strftime('%d.%m') for r in chart_list] + ['Hozir']
+        chart_t25  = [r['t25']  for r in chart_list] + [t.get(25,  0)]
+        chart_t50  = [r['t50']  for r in chart_list] + [t.get(50,  0)]
+        chart_t75  = [r['t75']  for r in chart_list] + [t.get(75,  0)]
+        chart_t100 = [r['t100'] for r in chart_list] + [t.get(100, 0)]
+
         # ─── Detail view (only built if needed) ───
         page_obj = None
         total_rows = 0
@@ -546,7 +567,7 @@ class PaymentStatsView(View):
                 Student.objects
                 .filter(group__in=groups_qs)
                 .select_related('group')
-                .prefetch_related('contracts')
+                .prefetch_related('contracts__tutor_confirmations', 'parents')
             )
             if search:
                 students_qs = students_qs.filter(
@@ -560,10 +581,18 @@ class PaymentStatsView(View):
                 paid  = float(contract.paid_amount)     if contract else 0
                 total = float(contract.contract_amount) if contract else 0
                 debt  = float(contract.debt_amount)     if contract else 0
+                has_confirmation = (
+                    any(tc.is_active for tc in contract.tutor_confirmations.all())
+                    if contract else False
+                )
+                has_parent = any(rel.status == 'verified' for rel in student.parents.all())
                 rows.append({
                     'student': student, 'contract': contract,
                     'pct': round(min(pct, 100), 1),
                     'tier': tier, 'paid': paid, 'total': total, 'debt': debt,
+                    'has_telegram':     bool(student.telegram_id),
+                    'has_confirmation': has_confirmation,
+                    'has_parent':       has_parent,
                 })
 
             if tier_filter != '':
@@ -603,60 +632,113 @@ class PaymentStatsView(View):
             'sort_dir': sort_dir,
             'next_dir': next_dir,
             'current_year': current_year,
+            # Chart.js uchun JSON
+            'chart_labels_json': json.dumps(chart_labels),
+            'chart_t25_json':    json.dumps(chart_t25),
+            'chart_t50_json':    json.dumps(chart_t50),
+            'chart_t75_json':    json.dumps(chart_t75),
+            'chart_t100_json':   json.dumps(chart_t100),
         }
         return render(request, 'dashboard/payment_stats.html', context)
 
-    # ---- Excel export (2 sheet: snapshot + students) ----
+    # ---- Excel export — minimalistik, ko'proq ma'lumot ----
     def _export_excel(self, rows, snapshot_rows, current_tier_counts, academic_year):
         wb = openpyxl.Workbook()
-        hdr_fill = PatternFill("solid", fgColor="1E293B")
-        hdr_font = Font(bold=True, color="FFFFFF")
-        center   = Alignment(horizontal='center')
 
-        # ───── Sheet 1: Snapshot tarixi ─────
+        thin   = Side(border_style='thin', color='CBD5E1')
+        brd    = Border(left=thin, right=thin, top=thin, bottom=thin)
+        hdr_f  = Font(bold=True, name='Calibri', size=10, color='1E293B')
+        hdr_bg = PatternFill('solid', fgColor='F1F5F9')
+        c_aln  = Alignment(horizontal='center', vertical='center', wrap_text=False)
+        l_aln  = Alignment(horizontal='left',   vertical='center')
+
+        def _cell(ws, row, col, val, font=None, fill=None, aln=None):
+            cell = ws.cell(row=row, column=col, value=val)
+            cell.border = brd
+            if font: cell.font = font
+            if fill: cell.fill = fill
+            if aln:  cell.alignment = aln
+            return cell
+
+        # ─── Sheet 1: Snapshot tarixi + delta ───
         ws1 = wb.active
         ws1.title = "To'lov dinamikasi"
-        snap_headers = ['Sana', "25% to'lov", "50% to'lov", "75% to'lov", "100% to'lov", "Jami"]
-        for col, h in enumerate(snap_headers, 1):
-            cell = ws1.cell(row=1, column=col, value=h)
-            cell.fill, cell.font, cell.alignment = hdr_fill, hdr_font, center
+        ws1.freeze_panes = 'A2'
+        ws1.row_dimensions[1].height = 22
 
-        # Joriy holat birinchi qator
+        s1_hdrs = [
+            'Sana',
+            '25% tier', '△ 25%',
+            '50% tier', '△ 50%',
+            '75% tier', '△ 75%',
+            '100% tier','△ 100%',
+            'Jami',
+        ]
+        for c, h in enumerate(s1_hdrs, 1):
+            _cell(ws1, 1, c, h, font=hdr_f, fill=hdr_bg, aln=c_aln)
+
+        def _fmt_delta(d):
+            if d is None: return '—'
+            return f'+{d}' if d > 0 else (str(d) if d != 0 else '0')
+
+        # Joriy holat
         t = current_tier_counts
-        ws1.append(['Joriy holat', t.get(25,0), t.get(50,0), t.get(75,0), t.get(100,0),
-                    t.get(0,0)+t.get(25,0)+t.get(50,0)+t.get(75,0)+t.get(100,0)])
+        total0 = t.get(0,0)+t.get(25,0)+t.get(50,0)+t.get(75,0)+t.get(100,0)
+        row0 = ['Joriy holat', t.get(25,0),'—', t.get(50,0),'—', t.get(75,0),'—', t.get(100,0),'—', total0]
+        bold10 = Font(bold=True, name='Calibri', size=10)
+        for c, v in enumerate(row0, 1):
+            _cell(ws1, 2, c, v, font=bold10, aln=c_aln if c > 1 else l_aln)
 
-        for row in snapshot_rows:
+        for i, row in enumerate(snapshot_rows, 3):
+            sd = row['snapshot_date']
+            sdt = sd.strftime('%d.%m.%Y') if hasattr(sd, 'strftime') else str(sd)
             total = row['t25'] + row['t50'] + row['t75'] + row['t100']
-            ws1.append([
-                row['snapshot_date'].strftime('%d.%m.%Y'),
-                row['t25'], row['t50'], row['t75'], row['t100'], total,
-            ])
+            rd = [
+                sdt,
+                row['t25'],  _fmt_delta(row.get('d25')),
+                row['t50'],  _fmt_delta(row.get('d50')),
+                row['t75'],  _fmt_delta(row.get('d75')),
+                row['t100'], _fmt_delta(row.get('d100')),
+                total,
+            ]
+            for c, v in enumerate(rd, 1):
+                _cell(ws1, i, c, v, aln=c_aln if c > 1 else l_aln)
 
-        for col_idx, width in enumerate([16, 14, 14, 14, 14, 10], 1):
-            ws1.column_dimensions[get_column_letter(col_idx)].width = width
+        for ci, w in enumerate([14,10,8,10,8,10,8,10,8,8], 1):
+            ws1.column_dimensions[get_column_letter(ci)].width = w
 
-        # ───── Sheet 2: Talabalar ro'yxati ─────
-        ws2 = wb.create_sheet("Talabalar")
-        headers = ['#', 'F.I.O', 'ID', 'Guruh', 'Kurs',
-                   "Kontrakt (so'm)", "To'langan (so'm)", "Qarz (so'm)", "Foiz (%)", "Tier"]
-        for col, h in enumerate(headers, 1):
-            cell = ws2.cell(row=1, column=col, value=h)
-            cell.fill, cell.font, cell.alignment = hdr_fill, hdr_font, center
+        # ─── Sheet 2: Talabalar ro'yxati ───
+        ws2 = wb.create_sheet("Talabalar ro'yxati")
+        ws2.freeze_panes = 'A2'
+        ws2.row_dimensions[1].height = 22
 
-        tier_labels = {0: 'Toʻlamagan (<25%)', 25: '25% tier', 50: '50% tier',
-                       75: '75% tier', 100: '100% tier'}
+        s2_hdrs = [
+            '#', 'F.I.O', 'Talaba ID', 'Guruh', 'Kurs',
+            "Kontrakt (so'm)", "To'langan (so'm)", "Qarz (so'm)",
+            'Foiz (%)', 'Tier',
+            'Telegram', 'Tutor tasdiq', 'Ota-ona',
+        ]
+        for c, h in enumerate(s2_hdrs, 1):
+            _cell(ws2, 1, c, h, font=hdr_f, fill=hdr_bg, aln=c_aln)
+
+        tier_lbl = {0:'<25%', 25:'25% tier', 50:'50% tier', 75:'75% tier', 100:'100% tier'}
         for i, r in enumerate(rows, 1):
             s, c = r['student'], r['contract']
-            ws2.append([
+            rd = [
                 i, s.full_name, s.student_id,
                 s.group.name if s.group else '',
                 c.course_level if c else '',
-                r['total'], r['paid'], r['debt'], r['pct'],
-                tier_labels.get(r['tier'], ''),
-            ])
-        for col_idx, width in enumerate([5, 30, 15, 12, 7, 18, 18, 18, 10, 18], 1):
-            ws2.column_dimensions[get_column_letter(col_idx)].width = width
+                float(r['total']), float(r['paid']), float(r['debt']),
+                r['pct'], tier_lbl.get(r['tier'], ''),
+                'Ha' if r.get('has_telegram')     else "Yo'q",
+                'Ha' if r.get('has_confirmation') else "Yo'q",
+                'Ha' if r.get('has_parent')       else "Yo'q",
+            ]
+            for ci, v in enumerate(rd, 1):
+                _cell(ws2, i+1, ci, v, aln=l_aln if ci == 2 else c_aln)
+
+        for ci, w in enumerate([5,32,14,12,7,18,18,18,10,12,10,12,10], 1):
+            ws2.column_dimensions[get_column_letter(ci)].width = w
 
         output = io.BytesIO()
         wb.save(output)
@@ -718,7 +800,7 @@ class CampaignSendView(View):
         sent = failed = skipped = 0
 
         for student in students:
-            # Tier filter: faqat shuncha % kam to'laganlar
+            # tier filter: faqat shuncha % kam to'laganlar
             if tier_filter > 0:
                 contract = student.contracts.filter(academic_year=current_year).first()
                 if contract and contract.contract_amount > 0:
@@ -869,7 +951,7 @@ class VerifyParentView(View):
         )
         messages.success(
             request,
-            f"{sp.parent.full_name or sp.parent.phone_number} — maksimal darajada tasdiqlandi."
+            f"{sp.parent.full_name or sp.parent.phone_number} — maksimal tierda tasdiqlandi."
         )
         return redirect(request.POST.get('next', 'dashboard:parents'))
 
@@ -934,3 +1016,107 @@ class NotificationFailuresView(View):
             NotificationFailure.objects.filter(pk=failure_id).delete()
             messages.success(request, "Yozuv o'chirildi.")
         return redirect('dashboard:notification_failures')
+
+
+# ---------------------------------------------------------------------------
+# Excel yuklash shablonini yuklab olish
+# ---------------------------------------------------------------------------
+
+@method_decorator(login_required(login_url='/dashboard/login/'), name='dispatch')
+class ExcelTemplateView(View):
+    def get(self, request):
+        wb = openpyxl.Workbook()
+
+        thin   = Side(border_style='thin', color='CBD5E1')
+        brd    = Border(left=thin, right=thin, top=thin, bottom=thin)
+        c_aln  = Alignment(horizontal='center', vertical='center')
+        l_aln  = Alignment(horizontal='left',   vertical='center')
+
+        ws = wb.active
+        ws.title = "Shablon"
+
+        col_widths = {'A': 14, 'B': 14, 'C': 30, 'D': 8, 'E': 18, 'F': 18}
+        for col, w in col_widths.items():
+            ws.column_dimensions[col].width = w
+
+        col_headers = ['login', 'parol', 'F.I.O', 'kurs', "kontrakt (so'm)", "to'langan (so'm)"]
+
+        def write_group(start_row, group_name, students):
+            # Guruh nomi
+            cell = ws.cell(row=start_row, column=1, value=group_name)
+            cell.font  = Font(bold=True, size=11, color='4338CA')
+            cell.fill  = PatternFill('solid', fgColor='EDE9FE')
+            cell.alignment = l_aln
+            ws.merge_cells(f'A{start_row}:F{start_row}')
+            ws.row_dimensions[start_row].height = 20
+
+            # Ustun sarlavhalari (parser o'tkazib yuboradi)
+            for ci, h in enumerate(col_headers, 1):
+                c = ws.cell(row=start_row + 1, column=ci, value=h)
+                c.font      = Font(bold=True, size=9, color='64748B', italic=True)
+                c.fill      = PatternFill('solid', fgColor='F8FAFC')
+                c.border    = brd
+                c.alignment = c_aln
+
+            # Ma'lumot qatorlari
+            for ri, row_data in enumerate(students):
+                rn = start_row + 2 + ri
+                for ci, val in enumerate(row_data, 1):
+                    c = ws.cell(row=rn, column=ci, value=val)
+                    c.border    = brd
+                    c.alignment = l_aln if ci == 3 else c_aln
+                ws.row_dimensions[rn].height = 16
+
+            return start_row + 2 + len(students) + 1  # keyingi guruh boshlanishi
+
+        nxt = write_group(1, 'ki-23-1', [
+            ('s001', 'pass001', 'Aliyev Ali Vali',      1, 5_000_000, 2_500_000),
+            ('s002', 'pass002', 'Karimova Zulfiya',     1, 5_000_000, 5_000_000),
+            ('s003', 'pass003', 'Nazarov Bobur Salim',  1, 5_000_000, 0),
+        ])
+        write_group(nxt, 'ki-23-2', [
+            ('s101', 'pass101', 'Rahimov Sherzod',      2, 6_000_000, 3_000_000),
+            ('s102', 'pass102', "Toshmatova Nodira",    2, 6_000_000, 6_000_000),
+            ('s103', 'pass103', 'Usmonov Jasur',        2, 0,         0),  # grant
+        ])
+
+        # Ko'rsatmalar varag'i
+        ws2 = wb.create_sheet("Ko'rsatmalar")
+        ws2.column_dimensions['A'].width = 65
+        lines = [
+            "EXCEL YUKLASH — KO'RSATMALAR",
+            "",
+            "Har bir guruh quyidagi tartibda yoziladi:",
+            "  1. A ustuniga guruh nomini yozing  (masalan: ki-23-1, mt-22-3)",
+            "  2. Keyin sarlavha qatori (parser o'tkazib yuboradi — siz ko'rish uchun foydali)",
+            "  3. Keyin talabalar ma'lumotlari:",
+            "",
+            "     A — login (talaba ID, unikal)",
+            "     B — parol",
+            "     C — F.I.O (to'liq ism)",
+            "     D — kurs (1, 2, 3 yoki 4)",
+            "     E — kontrakt summasi so'mda  (0 = grant talaba)",
+            "     F — to'langan summa so'mda",
+            "",
+            "Guruhlar orasida bo'sh qator qoldirishingiz mumkin.",
+            "Bir faylga bir nechta guruh sig'adi.",
+            "",
+            "MUHIM:",
+            "  - Guruh nomi tizimda mavjud bo'lishi shart",
+            "  - Mavjud talabalar yangilanadi, tutor tasdiqlari bekor qilinadi",
+            "  - Grant talabalar uchun kontrakt = 0 deb yozing",
+        ]
+        for i, line in enumerate(lines, 1):
+            cell = ws2.cell(row=i, column=1, value=line)
+            if i == 1:
+                cell.font = Font(bold=True, size=12)
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        response = HttpResponse(
+            output.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = 'attachment; filename="excel_yuklash_shablon.xlsx"'
+        return response

@@ -193,7 +193,13 @@
   </div>
   <div class="topbar-right">
     {% block topbar_right %}{% endblock %}
-    <span class="badge bg-light text-secondary">{{ request.user.username }}</span>
+    <span class="badge bg-light text-secondary d-none d-sm-inline">{{ request.user.username }}</span>
+    <a href="{% url 'dashboard:logout' %}"
+       class="btn btn-sm btn-outline-danger"
+       onclick="return confirm('Tizimdan chiqmoqchimisiz?')"
+       title="Chiqish">
+      <i class="fas fa-sign-out-alt me-1"></i><span class="d-none d-md-inline">Chiqish</span>
+    </a>
   </div>
 </header>
 
