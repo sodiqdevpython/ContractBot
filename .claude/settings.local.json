@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git restore *)",
+      "Bash(python -c ' *)",
+      "Bash(python -m py_compile dashboard/views.py)",
+      "Bash(python -m py_compile dashboard/urls.py)",
+      "Bash(python -m py_compile dashboard/forms.py)",
+      "Bash(python -m py_compile dashboard/models.py)"
+    ]
+  }
+}

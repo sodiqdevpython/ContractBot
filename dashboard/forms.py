@@ -1,6 +1,6 @@
 from django import forms
 from django.contrib.auth.forms import AuthenticationForm
-from users.models import current_academic_year
+from users.models import current_academic_year, NotificationCampaign, Group
 
 
 class LoginForm(AuthenticationForm):
@@ -64,12 +64,62 @@ class ExcelImportForm(forms.Form):
 
 
 class ConfirmPaymentForm(forms.Form):
+    confirmed_amount = forms.DecimalField(
+        label="To'lagan summa (so'm)",
+        required=False,
+        min_value=0,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control',
+            'placeholder': "Masalan: 2500000",
+            'step': '1000',
+        })
+    )
     note = forms.CharField(
         label="Izoh (ixtiyoriy)",
         required=False,
         widget=forms.Textarea(attrs={
             'class': 'form-control',
             'rows': 2,
-            'placeholder': "Masalan: Talaba naqd to'ladi, kvitansiya #123",
+            'placeholder': "Masalan: Naqd to'ladi, kvitansiya #123",
         })
     )
+
+
+class NotificationCampaignForm(forms.ModelForm):
+    class Meta:
+        model = NotificationCampaign
+        fields = [
+            'groups', 'student_type_filter', 'target_debt_tier',
+            'recipients', 'message_text',
+            'start_date', 'end_date', 'send_time',
+        ]
+        widgets = {
+            'groups': forms.CheckboxSelectMultiple(),
+            'start_date': forms.DateInput(
+                attrs={'type': 'date', 'class': 'form-control form-control-sm'}
+            ),
+            'end_date': forms.DateInput(
+                attrs={'type': 'date', 'class': 'form-control form-control-sm'}
+            ),
+            'send_time': forms.TimeInput(
+                attrs={'type': 'time', 'class': 'form-control form-control-sm'}
+            ),
+            'message_text': forms.Textarea(
+                attrs={'class': 'form-control', 'rows': 5,
+                       'placeholder': "Hurmatli talaba,\n\nXabarnoma matni..."}
+            ),
+            'student_type_filter': forms.Select(
+                attrs={'class': 'form-select form-select-sm'}
+            ),
+            'target_debt_tier': forms.Select(
+                attrs={'class': 'form-select form-select-sm'}
+            ),
+            'recipients': forms.Select(
+                attrs={'class': 'form-select form-select-sm'}
+            ),
+        }
+
+    def __init__(self, *args, accessible_groups=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if accessible_groups is not None:
+            self.fields['groups'].queryset = accessible_groups

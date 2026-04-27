@@ -100,7 +100,7 @@
         <label class="form-label small fw-semibold text-muted mb-1">Status</label>
         <select name="status" class="form-select form-select-sm">
           <option value="">Barchasi</option>
-          <option value="tutor_verified" {% if status_filter == 'tutor_verified' %}selected{% endif %}>Tutor tasdiqlagan (MAX)</option>
+          <option value="tutor_verified" {% if status_filter == 'tutor_verified' %}selected{% endif %}>Tutor tasdiqlagan</option>
           <option value="verified"       {% if status_filter == 'verified'       %}selected{% endif %}>OTP tasdiqlangan</option>
           <option value="pending_otp"    {% if status_filter == 'pending_otp'    %}selected{% endif %}>OTP kutilmoqda</option>
           <option value="no_parent"      {% if status_filter == 'no_parent'      %}selected{% endif %}>Ota-onasiz</option>
@@ -260,7 +260,7 @@
           </button>
         </form>
         {% else %}
-        <!-- Maksimal darajada tasdiqlash -->
+        <!-- Maksimal tierda tasdiqlash -->
         <button class="btn btn-sm btn-outline-success"
                 title="Tutor tomonidan maksimal tasdiqlash"
                 data-bs-toggle="modal"
@@ -297,7 +297,7 @@
     <div class="modal-content" style="border-radius:16px; border:none">
       <div class="modal-header border-0 pb-0">
         <h5 class="modal-title">
-          <i class="fas fa-star text-warning me-2"></i>Maksimal darajada tasdiqlash
+          <i class="fas fa-star text-warning me-2"></i>Tasdiqlash
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
@@ -308,8 +308,7 @@
           <div class="alert alert-warning small d-flex gap-2 mb-3">
             <i class="fas fa-star mt-1"></i>
             <div>
-              <b>MAX daraja</b> — tutor bu ota-onani shaxsan ko'rgan yoki gaplashgan.
-              Bu — eng yuqori ishonch darajasi.
+              <b>Ota onani tasdiqlash</b> — tutor bu ota-onani shaxsan ko'rgan yoki gaplashgan.
             </div>
           </div>
           <div class="p-3 rounded mb-3" style="background:#f8fafc; border:1px solid #e2e8f0">
@@ -317,15 +316,15 @@
             <div id="modalStudentInfo" class="text-muted small"></div>
           </div>
           <div>
-            <label class="form-label small fw-semibold">Izoh (ixtiyoriy)</label>
+            <label class="form-label small fw-semibold">Izoh</label>
             <textarea name="note" class="form-control" rows="2"
-                      placeholder="Masalan: Talaba bilan birga keldi, hujjatini ko'rdim"></textarea>
+                      placeholder="Masalan: Telfon qilib ko'rdim to'g'ri ekan"></textarea>
           </div>
         </div>
         <div class="modal-footer border-0 pt-0">
           <button type="button" class="btn btn-light" data-bs-dismiss="modal">Bekor</button>
           <button type="submit" class="btn btn-warning text-dark fw-semibold">
-            <i class="fas fa-star me-1"></i>Tasdiqlash (MAX)
+            <i class="fas fa-star me-1"></i>Tasdiqlash
           </button>
         </div>
       </form>

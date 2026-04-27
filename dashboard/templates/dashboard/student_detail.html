@@ -184,7 +184,7 @@
             <div class="text-muted" style="font-size:.75rem">To'langan (so'm)</div>
           </div>
           <div class="col-4 text-center">
-            <div class="fw-700" style="font-size:1.1rem;{% if current_contract.debt_amount > 0 %}color:#dc2626{% else %}color:#059669{% endif %}">
+            <div class="fw-700" style="font-size:1.1rem;">
               {{ current_contract.debt_amount|floatformat:0 }}
             </div>
             <div class="text-muted" style="font-size:.75rem">Qarz (so'm)</div>
@@ -217,6 +217,12 @@
               {{ active_confirmation.confirmed_by.get_full_name|default:active_confirmation.confirmed_by.username }}
               · {{ active_confirmation.confirmed_at|date:"d.m.Y H:i" }}
             </div>
+            {% if active_confirmation.confirmed_amount %}
+            <div class="mt-1 small">
+              <i class="fas fa-money-bill-wave me-1 text-success"></i>
+              To'lagan summa: <b class="text-success">{{ active_confirmation.confirmed_amount|floatformat:0 }} so'm</b>
+            </div>
+            {% endif %}
             {% if active_confirmation.note %}
             <div class="mt-1 small fst-italic">"{{ active_confirmation.note }}"</div>
             {% endif %}
@@ -352,6 +358,21 @@
               ({{ current_year }})
             </div>
             {% endif %}
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">
+              To'lagan summa (so'm) <span class="text-muted fw-normal">(ixtiyoriy)</span>
+            </label>
+            <input type="number" name="confirmed_amount" class="form-control form-control-sm"
+                   placeholder="Masalan: 2500000"
+                   {% if current_contract %}
+                   max="{{ current_contract.contract_amount }}"
+                   {% endif %}
+                   min="0" step="1000">
+            <div class="form-text text-muted" style="font-size:.72rem">
+              <i class="fas fa-info-circle me-1"></i>
+              Bu faqat ma'lumot uchun saqlanadi. Asosiy haqiqat — Excel datasi.
+            </div>
           </div>
           <div>
             <label class="form-label small fw-semibold">Izoh (ixtiyoriy)</label>

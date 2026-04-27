@@ -131,7 +131,7 @@ class StudentParent(models.Model):
 
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='parents', verbose_name="Talaba")
     parent = models.ForeignKey(Parent, on_delete=models.CASCADE, related_name='students', verbose_name="Ota-ona")
-    role = models.CharField(max_length=150, choices=ROLE_CHOICES, verbose_name="Qarindoshlik darajasi", null=True, blank=True)
+    role = models.CharField(max_length=150, choices=ROLE_CHOICES, verbose_name="Qarindoshlik tiersi", null=True, blank=True)
 
     custom_role_name = models.CharField(max_length=100, null=True, blank=True, verbose_name="Kimligi (Boshqa)")
     
@@ -179,7 +179,7 @@ class Payment(models.Model):
         verbose_name_plural = "To'lovlar"
 
 class NotificationCampaign(models.Model):
-    TIER_CHOICES = (
+    tier_CHOICES = (
         (0, 'Qarzdan qat\'i nazar (E\'lonlar uchun)'),
         (25, '25% (1-chorak) to\'lamaganlar uchun'),
         (50, '50% (Yarim yillik) to\'lamaganlar uchun'),
@@ -199,7 +199,7 @@ class NotificationCampaign(models.Model):
     
     groups = models.ManyToManyField(Group, related_name='campaigns', verbose_name="Qaysi guruhlarga?")
     student_type_filter = models.CharField(max_length=20, choices=STUDENT_TYPE_CHOICES, default='contract_only', verbose_name="Kimlarga (Grant/Kontrakt)")
-    target_debt_tier = models.PositiveSmallIntegerField(choices=TIER_CHOICES, verbose_name="Qarz chegarasi (Filtr)")
+    target_debt_tier = models.PositiveSmallIntegerField(choices=tier_CHOICES, verbose_name="Qarz chegarasi (Filtr)")
     recipients = models.CharField(max_length=30, choices=RECIPIENT_CHOICES, default='student_only', verbose_name="Kimlarga yuborilsin?")
     message_text = models.TextField(verbose_name="Yuboriladigan xabar matni")
     

@@ -16,10 +16,10 @@ from django.db.models import Sum, Count, Q
 from django.core.paginator import Paginator
 from django.http import HttpResponse
 
-from users.models import Group, Student, StudentContract, Payment, StudentParent, Parent, current_academic_year
+from users.models import Group, Student, StudentContract, Payment, StudentParent, Parent, current_academic_year, NotificationCampaign
 from .models import TutorPaymentConfirmation, ParentTutorVerification, NotificationFailure, PaymentSnapshot
 from .excel_parser import parse_multi_group_excel
-from .forms import LoginForm, ExcelImportForm, ConfirmPaymentForm
+from .forms import LoginForm, ExcelImportForm, ConfirmPaymentForm, NotificationCampaignForm
 
 
 # ---------------------------------------------------------------------------
@@ -271,10 +271,23 @@ class ConfirmPaymentView(View):
 
         TutorPaymentConfirmation.objects.filter(contract=contract, is_active=True).update(is_active=False)
         note = request.POST.get('note', '').strip()
+        confirmed_amount_raw = request.POST.get('confirmed_amount', '').strip()
+        confirmed_amount = None
+        if confirmed_amount_raw:
+            try:
+                from decimal import Decimal
+                confirmed_amount = Decimal(confirmed_amount_raw.replace(' ', '').replace(',', '.'))
+            except Exception:
+                pass
         TutorPaymentConfirmation.objects.create(
-            contract=contract, confirmed_by=request.user, is_active=True, note=note,
+            contract=contract,
+            confirmed_by=request.user,
+            is_active=True,
+            note=note,
+            confirmed_amount=confirmed_amount,
         )
-        messages.success(request, f"{student.full_name} uchun to'lov tasdiqlandi. Xabarnomalar to'xtatildi.")
+        amount_str = f" ({confirmed_amount:,.0f} so'm)" if confirmed_amount else ""
+        messages.success(request, f"{student.full_name} uchun to'lov{amount_str} tasdiqlandi. Xabarnomalar to'xtatildi.")
         return redirect('dashboard:student_detail', student_id=student_id)
 
 
@@ -373,26 +386,50 @@ class ExcelImportView(View):
                             django_user.first_name = student_data['full_name']
                         django_user.save()
 
+                        from decimal import Decimal as _D
+                        from django.utils import timezone as _tz
+
+                        # Yangi to'lov miqdorini oldindan saqlab qo'yamiz
+                        new_paid = _D(str(student_data['paid_amount']))
+
                         contract, contract_created = StudentContract.objects.get_or_create(
                             student=student,
                             academic_year=academic_year,
                             defaults={
                                 'course_level': student_data['course_level'],
                                 'contract_amount': student_data['contract_amount'],
-                                'paid_amount': student_data['paid_amount'],
+                                'paid_amount': new_paid,
                                 'is_grant': student_data['contract_amount'] == 0,
                             }
                         )
 
                         if not contract_created:
+                            old_paid = _D(str(contract.paid_amount))
                             contract.course_level = student_data['course_level']
                             contract.contract_amount = student_data['contract_amount']
-                            contract.paid_amount = student_data['paid_amount']
+                            contract.paid_amount = new_paid
                             contract.is_grant = student_data['contract_amount'] == 0
                             contract.save(update_fields=['course_level', 'contract_amount', 'paid_amount', 'is_grant'])
                             TutorPaymentConfirmation.objects.filter(
                                 contract=contract, is_active=True
                             ).update(is_active=False)
+
+                            # To'lov miqdori oshgan bo'lsa — tarix yozuvi (bulk_create: save() ni chaqirmaydi)
+                            delta = new_paid - old_paid
+                            if delta > 0:
+                                Payment.objects.bulk_create([Payment(
+                                    contract=contract,
+                                    amount=delta,
+                                    payment_date=_tz.localdate(),
+                                )])
+                        else:
+                            # Yangi kontrakt — agar to'lov bo'lsa, dastlabki yozuv
+                            if new_paid > 0:
+                                Payment.objects.bulk_create([Payment(
+                                    contract=contract,
+                                    amount=new_paid,
+                                    payment_date=_tz.localdate(),
+                                )])
 
                         if student_created:
                             created_count += 1
@@ -668,10 +705,8 @@ class PaymentStatsView(View):
 
         s1_hdrs = [
             'Sana',
-            '25% tier', '△ 25%',
-            '50% tier', '△ 50%',
-            '75% tier', '△ 75%',
-            '100% tier','△ 100%',
+            "25% bosqich", "50% bosqich",
+            "75% bosqich", "100% to'lagan",
             'Jami',
         ]
         for c, h in enumerate(s1_hdrs, 1):
@@ -684,7 +719,7 @@ class PaymentStatsView(View):
         # Joriy holat
         t = current_tier_counts
         total0 = t.get(0,0)+t.get(25,0)+t.get(50,0)+t.get(75,0)+t.get(100,0)
-        row0 = ['Joriy holat', t.get(25,0),'—', t.get(50,0),'—', t.get(75,0),'—', t.get(100,0),'—', total0]
+        row0 = ['Joriy holat', t.get(25,0), t.get(50,0), t.get(75,0), t.get(100,0), total0]
         bold10 = Font(bold=True, name='Calibri', size=10)
         for c, v in enumerate(row0, 1):
             _cell(ws1, 2, c, v, font=bold10, aln=c_aln if c > 1 else l_aln)
@@ -693,18 +728,11 @@ class PaymentStatsView(View):
             sd = row['snapshot_date']
             sdt = sd.strftime('%d.%m.%Y') if hasattr(sd, 'strftime') else str(sd)
             total = row['t25'] + row['t50'] + row['t75'] + row['t100']
-            rd = [
-                sdt,
-                row['t25'],  _fmt_delta(row.get('d25')),
-                row['t50'],  _fmt_delta(row.get('d50')),
-                row['t75'],  _fmt_delta(row.get('d75')),
-                row['t100'], _fmt_delta(row.get('d100')),
-                total,
-            ]
+            rd = [sdt, row['t25'], row['t50'], row['t75'], row['t100'], total]
             for c, v in enumerate(rd, 1):
                 _cell(ws1, i, c, v, aln=c_aln if c > 1 else l_aln)
 
-        for ci, w in enumerate([14,10,8,10,8,10,8,10,8,8], 1):
+        for ci, w in enumerate([16, 14, 14, 14, 16, 10], 1):
             ws1.column_dimensions[get_column_letter(ci)].width = w
 
         # ─── Sheet 2: Talabalar ro'yxati ───
@@ -721,7 +749,7 @@ class PaymentStatsView(View):
         for c, h in enumerate(s2_hdrs, 1):
             _cell(ws2, 1, c, h, font=hdr_f, fill=hdr_bg, aln=c_aln)
 
-        tier_lbl = {0:'<25%', 25:'25% tier', 50:'50% tier', 75:'75% tier', 100:'100% tier'}
+        tier_lbl = {0:"To'lamagan (<25%)", 25:"25% bosqich", 50:"50% bosqich", 75:"75% bosqich", 100:"To'liq to'lagan"}
         for i, r in enumerate(rows, 1):
             s, c = r['student'], r['contract']
             rd = [
@@ -1016,6 +1044,72 @@ class NotificationFailuresView(View):
             NotificationFailure.objects.filter(pk=failure_id).delete()
             messages.success(request, "Yozuv o'chirildi.")
         return redirect('dashboard:notification_failures')
+
+
+# ---------------------------------------------------------------------------
+# Rejalashtirilgan xabarnomalar (NotificationCampaign)
+# ---------------------------------------------------------------------------
+
+@method_decorator(login_required(login_url='/dashboard/login/'), name='dispatch')
+class CampaignScheduleView(View):
+    def get(self, request):
+        all_groups = get_accessible_groups(request.user)
+        form = NotificationCampaignForm(accessible_groups=all_groups)
+
+        # Faqat shu foydalanuvchi ko'ra oladigan kampaniyalar
+        campaigns = (
+            NotificationCampaign.objects
+            .filter(groups__in=all_groups)
+            .distinct()
+            .prefetch_related('groups')
+            .order_by('-start_date')
+        )
+
+        context = {
+            'form': form,
+            'campaigns': campaigns,
+            'all_groups': all_groups,
+        }
+        return render(request, 'dashboard/campaign_schedule.html', context)
+
+    def post(self, request):
+        all_groups = get_accessible_groups(request.user)
+        action = request.POST.get('action', 'create')
+
+        if action == 'delete':
+            camp_id = request.POST.get('campaign_id')
+            if camp_id:
+                camp = NotificationCampaign.objects.filter(pk=camp_id).first()
+                if camp and camp.groups.filter(pk__in=all_groups).exists():
+                    camp.delete()
+                    messages.success(request, "Kampaniya o'chirildi.")
+                else:
+                    messages.error(request, "Kampaniya topilmadi yoki ruxsatsiz.")
+            return redirect('dashboard:campaign_schedule')
+
+        form = NotificationCampaignForm(request.POST, accessible_groups=all_groups)
+        if form.is_valid():
+            # Faqat ruxsat berilgan guruhlar tanlanishi mumkin
+            camp = form.save(commit=False)
+            camp.save()
+            selected_groups = form.cleaned_data['groups'].filter(pk__in=all_groups)
+            camp.groups.set(selected_groups)
+            messages.success(
+                request,
+                f"Kampaniya {camp.start_date} — {camp.end_date} davri uchun yaratildi."
+            )
+            return redirect('dashboard:campaign_schedule')
+        else:
+            campaigns = (
+                NotificationCampaign.objects
+                .filter(groups__in=all_groups)
+                .distinct()
+                .prefetch_related('groups')
+                .order_by('-start_date')
+            )
+            return render(request, 'dashboard/campaign_schedule.html', {
+                'form': form, 'campaigns': campaigns, 'all_groups': all_groups,
+            })
 
 
 # ---------------------------------------------------------------------------

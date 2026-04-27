@@ -97,24 +97,17 @@
       <label class="form-label small fw-semibold mb-1 text-muted">Ko'rinish</label>
       <div class="btn-group btn-group-sm w-100">
         <input type="radio" class="btn-check" name="view" value="simple" id="v_simple"
-               {% if view_mode == 'simple' %}checked{% endif %}
+               {% if view_mode != 'detail' %}checked{% endif %}
                onchange="document.getElementById('filterForm').submit()">
         <label class="btn btn-outline-secondary" for="v_simple">
-          <i class="fas fa-table me-1"></i>Oddiy jadval
-        </label>
-
-        <input type="radio" class="btn-check" name="view" value="chart" id="v_chart"
-               {% if view_mode == 'chart' %}checked{% endif %}
-               onchange="document.getElementById('filterForm').submit()">
-        <label class="btn btn-outline-secondary" for="v_chart">
-          <i class="fas fa-chart-line me-1"></i>Grafik
+          <i class="fas fa-table me-1"></i>Jadval
         </label>
 
         <input type="radio" class="btn-check" name="view" value="detail" id="v_detail"
                {% if view_mode == 'detail' %}checked{% endif %}
                onchange="document.getElementById('filterForm').submit()">
         <label class="btn btn-outline-secondary" for="v_detail">
-          <i class="fas fa-list me-1"></i>Batafsil
+          <i class="fas fa-list me-1"></i>Batafsil ro'yxat
         </label>
       </div>
     </div>
@@ -148,10 +141,10 @@
       <thead>
         <tr>
           <th>Sana</th>
-          <th class="text-center col-25">25% tier</th>
-          <th class="text-center col-50">50% tier</th>
-          <th class="text-center col-75">75% tier</th>
-          <th class="text-center col-100">100% tier</th>
+          <th class="text-center col-25">25% bosqich</th>
+          <th class="text-center col-50">50% bosqich</th>
+          <th class="text-center col-75">75% bosqich</th>
+          <th class="text-center col-100">100% bosqich</th>
           <th class="text-center text-muted">Jami</th>
         </tr>
       </thead>
@@ -274,25 +267,25 @@
   <div class="col-6 col-md-3">
     <div class="card p-3 text-center" style="border-left:4px solid #f59e0b">
       <div class="fw-bold" style="font-size:2rem;color:#92400e">{{ t.25 }}</div>
-      <div class="small text-muted">25% tier</div>
+      <div class="small text-muted">25%</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="card p-3 text-center" style="border-left:4px solid #f97316">
       <div class="fw-bold" style="font-size:2rem;color:#9a3412">{{ t.50 }}</div>
-      <div class="small text-muted">50% tier</div>
+      <div class="small text-muted">50%</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="card p-3 text-center" style="border-left:4px solid #3b82f6">
       <div class="fw-bold" style="font-size:2rem;color:#1e40af">{{ t.75 }}</div>
-      <div class="small text-muted">75% tier</div>
+      <div class="small text-muted">75%</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="card p-3 text-center" style="border-left:4px solid #10b981">
       <div class="fw-bold" style="font-size:2rem;color:#065f46">{{ t.100 }}</div>
-      <div class="small text-muted">100% tier</div>
+      <div class="small text-muted">100%</div>
     </div>
   </div>
   {% endwith %}
@@ -336,14 +329,14 @@
       </div>
     </div>
     <div class="col-md-3">
-      <label class="form-label small fw-semibold mb-1 text-muted">Tier filtri</label>
+      <label class="form-label small fw-semibold mb-1 text-muted">Bosqich filtri</label>
       <select name="tier" class="form-select form-select-sm">
         <option value="">Barchasi</option>
         <option value="0"   {% if tier_filter == '0'   %}selected{% endif %}>To'lamaganlar (&lt;25%)</option>
-        <option value="25"  {% if tier_filter == '25'  %}selected{% endif %}>25% tier</option>
-        <option value="50"  {% if tier_filter == '50'  %}selected{% endif %}>50% tier</option>
-        <option value="75"  {% if tier_filter == '75'  %}selected{% endif %}>75% tier</option>
-        <option value="100" {% if tier_filter == '100' %}selected{% endif %}>100% tier</option>
+        <option value="25"  {% if tier_filter == '25'  %}selected{% endif %}>25% bosqich</option>
+        <option value="50"  {% if tier_filter == '50'  %}selected{% endif %}>50% bosqich</option>
+        <option value="75"  {% if tier_filter == '75'  %}selected{% endif %}>75% bosqich</option>
+        <option value="100" {% if tier_filter == '100' %}selected{% endif %}>100% to'lagan</option>
       </select>
     </div>
     <div class="col-md-2">
@@ -376,7 +369,7 @@
           <th style="width:40px">#</th>
           <th>Talaba</th>
           <th>Guruh</th>
-          <th class="text-center">Tier</th>
+          <th class="text-center">Bosqich</th>
           <th class="text-end">Kontrakt</th>
           <th class="text-end">To'langan</th>
           <th class="text-end">Qarz</th>
@@ -484,28 +477,28 @@ new Chart(ctx, {
     labels,
     datasets: [
       {
-        label: '25% tier',
+        label: '25% bosqich',
         data: t25,
         borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.1)',
         tension: .35, pointRadius: 5, pointHoverRadius: 7,
         fill: false, borderWidth: 2.5,
       },
       {
-        label: '50% tier',
+        label: '50% bosqich',
         data: t50,
         borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,.1)',
         tension: .35, pointRadius: 5, pointHoverRadius: 7,
         fill: false, borderWidth: 2.5,
       },
       {
-        label: '75% tier',
+        label: '75% bosqich',
         data: t75,
         borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.1)',
         tension: .35, pointRadius: 5, pointHoverRadius: 7,
         fill: false, borderWidth: 2.5,
       },
       {
-        label: '100% tier',
+        label: '100% bosqich',
         data: t100,
         borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,.12)',
         tension: .35, pointRadius: 5, pointHoverRadius: 7,

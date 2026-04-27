@@ -25,7 +25,8 @@ urlpatterns = [
     path('notification-failures/', views.NotificationFailuresView.as_view(), name='notification_failures'),
 
     # Xabarnoma yuborish (bulk campaign)
-    path('campaigns/send/', views.CampaignSendView.as_view(), name='campaign_send'),
+    path('campaigns/send/',     views.CampaignSendView.as_view(),     name='campaign_send'),
+    path('campaigns/schedule/', views.CampaignScheduleView.as_view(), name='campaign_schedule'),
 
     # To'lov statistikasi
     path('payment-stats/', views.PaymentStatsView.as_view(), name='payment_stats'),

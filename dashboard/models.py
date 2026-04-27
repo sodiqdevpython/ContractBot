@@ -23,6 +23,11 @@ class TutorPaymentConfirmation(models.Model):
     )
     confirmed_at = models.DateTimeField(auto_now_add=True, verbose_name="Tasdiqlagan vaqti")
     is_active = models.BooleanField(default=True, verbose_name="Faolmi?")
+    confirmed_amount = models.DecimalField(
+        max_digits=12, decimal_places=2,
+        null=True, blank=True,
+        verbose_name="Tasdiqlangan summa (so'm)"
+    )
     note = models.TextField(blank=True, verbose_name="Izoh")
 
     class Meta:
@@ -37,10 +42,10 @@ class TutorPaymentConfirmation(models.Model):
 
 class ParentTutorVerification(models.Model):
     """
-    Tutor tomonidan ota-onaning haqiqiyligini maksimal darajada tasdiqlash.
-    Bu status — eng yuqori ishonch darajasi: tutor shaxsan ko'rgan yoki gaplashgan.
-    OTP orqali 'verified' bo'lish — oddiy daraja.
-    Bu model — maksimal daraja.
+    Tutor tomonidan ota-onaning haqiqiyligini maksimal tierda tasdiqlash.
+    Bu status — eng yuqori ishonch tiersi: tutor shaxsan ko'rgan yoki gaplashgan.
+    OTP orqali 'verified' bo'lish — oddiy tier.
+    Bu model — maksimal tier.
     """
     student_parent = models.OneToOneField(
         'users.StudentParent',

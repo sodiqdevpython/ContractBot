@@ -34,7 +34,7 @@
 {% block content %}
 
 <div class="text-muted small mb-4">
-  <i class="fas fa-calendar me-1"></i>{{ current_year }} o'quv yili bo'yicha
+  <i class="me-1"></i>{{ current_year }} o'quv yili bo'yicha
 </div>
 
 <!-- Stat kartalar -->
@@ -73,7 +73,7 @@
         </div>
         <div>
           <div class="stat-value" style="font-size:1.1rem">{{ total_paid|floatformat:0 }}</div>
-          <div class="stat-label">To'langan (so'm)</div>
+          <div class="stat-label">To'langan</div>
         </div>
       </div>
     </div>
@@ -86,40 +86,40 @@
         </div>
         <div>
           <div class="stat-value" style="font-size:1.1rem">{{ total_debt|floatformat:0 }}</div>
-          <div class="stat-label">Umumiy qarz (so'm)</div>
+          <div class="stat-label">Umumiy qarz</div>
         </div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Tier stat kartalar -->
+<!-- tier stat kartalar -->
 <div class="row g-2 mb-4">
   <div class="col-6 col-sm-3">
     <div class="card p-3 text-center" style="border-left:4px solid #f59e0b">
       <div class="fw-bold" style="font-size:1.6rem;color:#92400e">{{ tier_counts.25 }}</div>
-      <div class="small text-muted">25% tier</div>
+      <div class="small text-muted">25% </div>
       <div style="font-size:.7rem;color:#94a3b8">≥25% &lt; 50%</div>
     </div>
   </div>
   <div class="col-6 col-sm-3">
     <div class="card p-3 text-center" style="border-left:4px solid #f97316">
       <div class="fw-bold" style="font-size:1.6rem;color:#9a3412">{{ tier_counts.50 }}</div>
-      <div class="small text-muted">50% tier</div>
+      <div class="small text-muted">50% </div>
       <div style="font-size:.7rem;color:#94a3b8">≥50% &lt; 75%</div>
     </div>
   </div>
   <div class="col-6 col-sm-3">
     <div class="card p-3 text-center" style="border-left:4px solid #3b82f6">
       <div class="fw-bold" style="font-size:1.6rem;color:#1e40af">{{ tier_counts.75 }}</div>
-      <div class="small text-muted">75% tier</div>
+      <div class="small text-muted">75% </div>
       <div style="font-size:.7rem;color:#94a3b8">≥75% &lt; 100%</div>
     </div>
   </div>
   <div class="col-6 col-sm-3">
     <div class="card p-3 text-center" style="border-left:4px solid #10b981">
       <div class="fw-bold" style="font-size:1.6rem;color:#065f46">{{ tier_counts.100 }}</div>
-      <div class="small text-muted">100% tier</div>
+      <div class="small text-muted">100% </div>
       <div style="font-size:.7rem;color:#94a3b8">To'liq to'lagan</div>
     </div>
   </div>
