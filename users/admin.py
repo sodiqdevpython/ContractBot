@@ -1,7 +1,5 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from django.utils import timezone
-from datetime import timedelta
 from django import forms
 from django.core.exceptions import ValidationError
 from django.utils.safestring import mark_safe
@@ -10,25 +8,6 @@ import openpyxl
 
 from .models import Group, Student, StudentContract, Parent, StudentParent, Payment, NotificationCampaign, ExcelImport
 
-# ==========================================
-# 24 SOATLIK QULF UCHUN MAXSUS KLASS
-# ==========================================
-class LockableAdmin(admin.ModelAdmin):
-    """
-    Agar obyekt yaratilganiga 24 soatdan oshgan bo'lsa,
-    tahrirlash va o'chirishni taqiqlaydi (Read-only qiladi).
-    """
-    def get_readonly_fields(self, request, obj=None):
-        if obj and hasattr(obj, 'created_at') and obj.created_at:
-            if timezone.now() > obj.created_at + timedelta(hours=24):
-                return [f.name for f in self.model._meta.fields] # Barcha ustunlarni yopadi
-        return super().get_readonly_fields(request, obj)
-
-    def has_delete_permission(self, request, obj=None):
-        if obj and hasattr(obj, 'created_at') and obj.created_at:
-            if timezone.now() > obj.created_at + timedelta(hours=24):
-                return False # O'chirishni taqiqlaydi
-        return super().has_delete_permission(request, obj)
 
 
 # ==========================================
@@ -64,7 +43,7 @@ class PaymentInline(admin.TabularInline):
 # TALABALAR VA KONTRAKTLAR (24 soatlik qulf bilan)
 # ==========================================
 @admin.register(Student)
-class StudentAdmin(LockableAdmin):
+class StudentAdmin(admin.ModelAdmin):
     list_display = ('student_id', 'full_name', 'group', 'tg_username', 'debt_amount', 'image_tag')
     list_filter = ('group',)
     search_fields = ('full_name', 'student_id', 'tg_username', 'telegram_id')
@@ -81,7 +60,7 @@ class StudentAdmin(LockableAdmin):
     debt_amount.short_description = "Qarzdorlik"
 
 @admin.register(StudentContract)
-class StudentContractAdmin(LockableAdmin):
+class StudentContractAdmin(admin.ModelAdmin):
     list_display = ('student', 'academic_year', 'course_level', 'is_grant', 'contract_amount', 'paid_amount', 'get_debt_amount')
     list_filter = ('academic_year', 'course_level', 'is_grant')
     search_fields = ('student__full_name', 'student__student_id')
@@ -129,7 +108,7 @@ class ExcelImportForm(forms.ModelForm):
         return file
 
 @admin.register(ExcelImport)
-class ExcelImportAdmin(LockableAdmin):
+class ExcelImportAdmin(admin.ModelAdmin):
     form = ExcelImportForm
     list_display = ('group', 'academic_year', 'created_at', 'file')
 

@@ -799,7 +799,16 @@ class CampaignSendView(View):
     def get(self, request):
         from django.utils import timezone as _tz
         all_groups = get_accessible_groups(request.user)
-        failures_count = NotificationFailure.objects.count()
+
+        # Faqat o'z guruhlariga tegishli xatolar
+        if request.user.is_staff:
+            failures_count = NotificationFailure.objects.count()
+        else:
+            failures_count = NotificationFailure.objects.filter(
+                Q(student__group__in=all_groups) |
+                Q(parent__students__student__group__in=all_groups)
+            ).distinct().count()
+
         scheduled_campaigns = self._get_accessible_scheduled(request.user)
         context = {
             'all_groups': all_groups,
@@ -1092,18 +1101,22 @@ class UnverifyParentView(View):
 
 @method_decorator(login_required(login_url='/dashboard/login/'), name='dispatch')
 class NotificationFailuresView(View):
+    def _base_qs(self, user):
+        """Foydalanuvchi ruxsatiga ko'ra filtrlangan asosiy queryset."""
+        qs = NotificationFailure.objects.select_related('student__group', 'parent', 'campaign')
+        if not user.is_staff:
+            accessible_groups = get_accessible_groups(user)
+            qs = qs.filter(
+                Q(student__group__in=accessible_groups) |
+                Q(parent__students__student__group__in=accessible_groups)
+            ).distinct()
+        return qs
+
     def get(self, request):
         type_filter = request.GET.get('type', '')
         search      = request.GET.get('q', '').strip()
 
-        failures_qs = NotificationFailure.objects.select_related('student__group', 'parent', 'campaign')
-
-        if not request.user.is_staff:
-            accessible_groups = get_accessible_groups(request.user)
-            failures_qs = failures_qs.filter(
-                Q(student__group__in=accessible_groups) |
-                Q(parent__students__student__group__in=accessible_groups)
-            ).distinct()
+        failures_qs = self._base_qs(request.user)
 
         if type_filter == 'student':
             failures_qs = failures_qs.filter(recipient_type='student')
@@ -1118,20 +1131,26 @@ class NotificationFailuresView(View):
                 Q(parent__phone_number__icontains=search)
             )
 
+        base = self._base_qs(request.user)
         context = {
             'failures': failures_qs,
             'type_filter': type_filter,
             'search': search,
-            'student_count': NotificationFailure.objects.filter(recipient_type='student').count(),
-            'parent_count': NotificationFailure.objects.filter(recipient_type='parent').count(),
+            'student_count': base.filter(recipient_type='student').count(),
+            'parent_count': base.filter(recipient_type='parent').count(),
         }
         return render(request, 'dashboard/notification_failures.html', context)
 
     def post(self, request):
         failure_id = request.POST.get('failure_id')
         if failure_id:
-            NotificationFailure.objects.filter(pk=failure_id).delete()
-            messages.success(request, "Yozuv o'chirildi.")
+            # Faqat ruxsat berilgan yozuvni o'chirish
+            failure = self._base_qs(request.user).filter(pk=failure_id).first()
+            if failure:
+                failure.delete()
+                messages.success(request, "Yozuv o'chirildi.")
+            else:
+                messages.error(request, "Yozuv topilmadi yoki ruxsat yo'q.")
         return redirect('dashboard:notification_failures')
 
 
