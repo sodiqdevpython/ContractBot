@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Dashboard{% endblock %} — ContractBot</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --sidebar-w: 250px;
+      --sidebar-bg: #0f172a;
+      --sidebar-hover: rgba(99,102,241,.15);
+      --sidebar-active: #6366f1;
+      --sidebar-text: #94a3b8;
+      --topbar-h: 60px;
+      --primary: #6366f1;
+    }
+
+    * { box-sizing: border-box; }
+    body { background: #f1f5f9; font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      position: fixed; top: 0; left: 0;
+      width: var(--sidebar-w); height: 100vh;
+      background: var(--sidebar-bg);
+      display: flex; flex-direction: column;
+      z-index: 200; transition: transform .25s;
+      overflow-y: auto;
+    }
+    .sidebar-brand {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid rgba(255,255,255,.07);
+    }
+    .sidebar-brand .brand-title { color: #fff; font-weight: 700; font-size: 1rem; margin: 0; }
+    .sidebar-brand .brand-sub { color: var(--sidebar-text); font-size: .72rem; }
+
+    .sidebar-section { padding: .5rem 1rem .25rem; color: #475569; font-size: .68rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+
+    .sidebar-nav { flex: 1; padding: .5rem 0; }
+    .sidebar-nav a {
+      display: flex; align-items: center; gap: .75rem;
+      padding: .6rem 1.25rem;
+      color: var(--sidebar-text); text-decoration: none;
+      font-size: .875rem; border-radius: 0;
+      transition: background .15s, color .15s;
+    }
+    .sidebar-nav a:hover { background: var(--sidebar-hover); color: #e2e8f0; }
+    .sidebar-nav a.active { background: var(--sidebar-active); color: #fff; }
+    .sidebar-nav a i { width: 18px; text-align: center; font-size: .9rem; }
+
+    .sidebar-footer {
+      padding: 1rem 1.25rem;
+      border-top: 1px solid rgba(255,255,255,.07);
+    }
+    .avatar-sm {
+      width: 34px; height: 34px; border-radius: 50%;
+      background: var(--primary); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: .85rem; flex-shrink: 0;
+    }
+    .user-name { color: #e2e8f0; font-size: .8rem; font-weight: 600; }
+    .user-role { color: var(--sidebar-text); font-size: .7rem; }
+
+    /* ── Topbar ── */
+    .topbar {
+      position: fixed; top: 0; left: var(--sidebar-w); right: 0;
+      height: var(--topbar-h);
+      background: #fff; border-bottom: 1px solid #e2e8f0;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 1.5rem; z-index: 100;
+    }
+    .topbar-title { font-size: 1rem; font-weight: 600; color: #1e293b; margin: 0; }
+    .topbar-right { display: flex; align-items: center; gap: .75rem; }
+
+    /* ── Main ── */
+    .main-wrap {
+      margin-left: var(--sidebar-w);
+      padding-top: var(--topbar-h);
+      min-height: 100vh;
+    }
+    .page-body { padding: 1.5rem; }
+
+    /* ── Cards ── */
+    .card { border: none; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    .stat-card { overflow: hidden; }
+    .stat-icon {
+      width: 48px; height: 48px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.2rem;
+    }
+    .stat-value { font-size: 1.5rem; font-weight: 700; color: #1e293b; line-height: 1; }
+    .stat-label { color: #64748b; font-size: .8rem; margin-top: .2rem; }
+
+    /* ── Debt badges ── */
+    .debt-paid   { background:#d1fae5; color:#065f46; }
+    .debt-low    { background:#fef3c7; color:#92400e; }
+    .debt-mid    { background:#fed7aa; color:#9a3412; }
+    .debt-high   { background:#fee2e2; color:#991b1b; }
+    .badge-pill  { border-radius: 20px; padding: 4px 10px; font-size: .78rem; font-weight: 500; }
+
+    /* ── Progress bar ── */
+    .progress { height: 6px; border-radius: 3px; }
+
+    /* ── Table ── */
+    .table-card { overflow: hidden; }
+    .table thead th { background: #f8fafc; color: #475569; font-size: .78rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; border-bottom: 2px solid #e2e8f0; padding: .75rem 1rem; }
+    .table tbody td { padding: .75rem 1rem; vertical-align: middle; border-color: #f1f5f9; font-size: .88rem; }
+    .table tbody tr:hover { background: #f8fafc; }
+
+    /* ── Confirmation badge ── */
+    .confirm-badge { background: #dbeafe; color: #1e40af; border-radius: 20px; padding: 3px 10px; font-size: .75rem; font-weight: 600; }
+
+    /* ── Mobile ── */
+    .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 199; }
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); }
+      .sidebar.open { transform: translateX(0); }
+      .sidebar-overlay.open { display: block; }
+      .topbar { left: 0; }
+      .main-wrap { margin-left: 0; }
+    }
+  </style>
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+
+<!-- Sidebar overlay (mobile) -->
+<div class="sidebar-overlay" id="overlay" onclick="toggleSidebar()"></div>
+
+<!-- ══ Sidebar ══ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <p class="brand-title"><i class="fas fa-university me-2 text-indigo-400"></i>ContractBot</p>
+    <span class="brand-sub">Alfraganus University</span>
+  </div>
+
+  <nav class="sidebar-nav">
+    {% if request.user.is_staff %}
+    <div class="sidebar-section">Admin</div>
+    <a href="{% url 'dashboard:admin_overview' %}" class="{% block nav_admin %}{% endblock %}">
+      <i class="fas fa-chart-pie"></i> Umumiy statistika
+    </a>
+    {% endif %}
+
+    <div class="sidebar-section">Asosiy</div>
+    <a href="{% url 'dashboard:groups' %}" class="{% block nav_groups %}{% endblock %}">
+      <i class="fas fa-users"></i> Guruhlar
+    </a>
+    <a href="{% url 'dashboard:parents' %}" class="{% block nav_parents %}{% endblock %}">
+      <i class="fas fa-people-roof"></i> Ota-onalar
+    </a>
+    <a href="{% url 'dashboard:payment_stats' %}" class="{% block nav_payment_stats %}{% endblock %}">
+      <i class="fas fa-chart-bar"></i> To'lov statistikasi
+    </a>
+
+    <div class="sidebar-section">Xabarnomalar</div>
+    <a href="{% url 'dashboard:campaign_send' %}" class="{% block nav_campaign %}{% endblock %}">
+      <i class="fas fa-paper-plane"></i> Xabar yuborish
+    </a>
+    <a href="{% url 'dashboard:campaign_schedule' %}" class="{% block nav_schedule %}{% endblock %}">
+      <i class="fas fa-calendar-check"></i> Rejalashtirish
+    </a>
+    <a href="{% url 'dashboard:notification_failures' %}" class="{% block nav_failures %}{% endblock %}">
+      <i class="fas fa-bell-slash"></i> Yuborilmaganlar
+    </a>
+
+    <div class="sidebar-section">Import</div>
+    <a href="{% url 'dashboard:excel_import' %}" class="{% block nav_excel %}{% endblock %}">
+      <i class="fas fa-file-excel"></i> Excel import
+    </a>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="d-flex align-items-center gap-2">
+      <div class="avatar-sm">{{ request.user.username|first|upper }}</div>
+      <div class="flex-grow-1 overflow-hidden">
+        <div class="user-name text-truncate">{{ request.user.get_full_name|default:request.user.username }}</div>
+        <div class="user-role">{% if request.user.is_staff %}Admin{% else %}Tutor{% endif %}</div>
+      </div>
+      <a href="{% url 'dashboard:logout' %}" class="text-muted ms-1" title="Chiqish">
+        <i class="fas fa-sign-out-alt"></i>
+      </a>
+    </div>
+  </div>
+</aside>
+
+<!-- ══ Topbar ══ -->
+<header class="topbar">
+  <div class="d-flex align-items-center gap-3">
+    <button class="btn btn-sm btn-light d-md-none" onclick="toggleSidebar()">
+      <i class="fas fa-bars"></i>
+    </button>
+    <h1 class="topbar-title">{% block page_title %}Dashboard{% endblock %}</h1>
+  </div>
+  <div class="topbar-right">
+    {% block topbar_right %}{% endblock %}
+    <span class="badge bg-light text-secondary d-none d-sm-inline">{{ request.user.username }}</span>
+    <a href="{% url 'dashboard:logout' %}"
+       class="btn btn-sm btn-outline-danger"
+       onclick="return confirm('Tizimdan chiqmoqchimisiz?')"
+       title="Chiqish">
+      <i class="fas fa-sign-out-alt me-1"></i><span class="d-none d-md-inline">Chiqish</span>
+    </a>
+  </div>
+</header>
+
+<!-- ══ Main ══ -->
+<main class="main-wrap">
+  <div class="page-body">
+
+    <!-- Toast messages -->
+    {% if messages %}
+    <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:1100">
+      {% for msg in messages %}
+      <div class="toast show align-items-center text-white border-0
+        {% if msg.tags == 'error' %}bg-danger
+        {% elif msg.tags == 'success' %}bg-success
+        {% elif msg.tags == 'warning' %}bg-warning
+        {% else %}bg-info{% endif %}"
+        role="alert" id="toast_{{ forloop.counter }}">
+        <div class="d-flex">
+          <div class="toast-body fw-semibold">
+            {% if msg.tags == 'error' %}<i class="fas fa-circle-xmark me-2"></i>
+            {% elif msg.tags == 'success' %}<i class="fas fa-circle-check me-2"></i>
+            {% elif msg.tags == 'warning' %}<i class="fas fa-triangle-exclamation me-2"></i>
+            {% else %}<i class="fas fa-circle-info me-2"></i>{% endif %}
+            {{ msg }}
+          </div>
+          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% block content %}{% endblock %}
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  function toggleSidebar() {
+    document.getElementById('sidebar').classList.toggle('open');
+    document.getElementById('overlay').classList.toggle('open');
+  }
+  // Auto-show toasts
+  document.querySelectorAll('.toast').forEach(el => {
+    new bootstrap.Toast(el, { delay: 5000 }).show();
+  });
+</script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,158 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Guruhlar{% endblock %}
+{% block page_title %}Guruhlar{% endblock %}
+{% block nav_groups %}active{% endblock %}
+
+{% block topbar_right %}
+  <a href="{% url 'dashboard:excel_import' %}" class="btn btn-sm btn-primary">
+    <i class="fas fa-file-upload me-1"></i>Excel import
+  </a>
+{% endblock %}
+
+{% block content %}
+
+<!-- Statistika kartalari -->
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-xl-3">
+    <div class="card stat-card p-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-icon" style="background:#ede9fe">
+          <i class="fas fa-users" style="color:#7c3aed"></i>
+        </div>
+        <div>
+          <div class="stat-value">{{ totals.students }}</div>
+          <div class="stat-label">Jami talabalar</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card stat-card p-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-icon" style="background:#dbeafe">
+          <i class="fas fa-layer-group" style="color:#2563eb"></i>
+        </div>
+        <div>
+          <div class="stat-value">{{ groups_data|length }}</div>
+          <div class="stat-label">Guruhlar soni</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card stat-card p-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-icon" style="background:#d1fae5">
+          <i class="fas fa-money-bill-wave" style="color:#059669"></i>
+        </div>
+        <div>
+          <div class="stat-value">{{ totals.contract|floatformat:0 }}</div>
+          <div class="stat-label">Jami kontrakt</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card stat-card p-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-icon" style="background:#fee2e2">
+          <i class="fas fa-triangle-exclamation" style="color:#dc2626"></i>
+        </div>
+        <div>
+          <div class="stat-value">{{ totals.debt|floatformat:0 }}</div>
+          <div class="stat-label">Umumiy qarz</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- O'quv yili -->
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h6 class="text-muted mb-0">
+    <i class="fas fa-calendar me-1"></i> {{ current_year }} — o'quv yili
+  </h6>
+</div>
+
+{% if groups_data %}
+<div class="row g-3">
+  {% for item in groups_data %}
+  <div class="col-md-6 col-xl-4">
+    <div class="card p-0 h-100">
+      <div class="card-body p-3">
+        <!-- Guruh sarlavhasi -->
+        <div class="d-flex align-items-start justify-content-between mb-3">
+          <div>
+            <h5 class="mb-0 fw-700" style="font-size:1rem; color:#1e293b">
+              <i class="fas fa-users me-1 text-primary"></i>{{ item.group.name }}
+            </h5>
+            <small class="text-muted">
+              {% if item.group.tutor %}
+                <i class="fas fa-chalkboard-teacher me-1"></i>{{ item.group.tutor.get_full_name|default:item.group.tutor.username }}
+              {% else %}
+                Tutor biriktirilmagan
+              {% endif %}
+            </small>
+          </div>
+          {% if item.total_debt > 0 %}
+          <span class="badge-pill debt-high">Qarz bor</span>
+          {% else %}
+          <span class="badge-pill debt-paid">To'liq</span>
+          {% endif %}
+        </div>
+
+        <!-- To'lov progressi -->
+        {% if item.total_contract > 0 %}
+        {% with pct=item.total_paid|floatformat:0 %}
+        <div class="mb-2">
+          <div class="d-flex justify-content-between small text-muted mb-1">
+            <span>To'langan</span>
+            <span>
+              {% if item.total_contract > 0 %}
+                {% widthratio item.total_paid item.total_contract 100 %}%
+              {% else %}0%{% endif %}
+            </span>
+          </div>
+          <div class="progress">
+            <div class="progress-bar bg-success" style="width: {% if item.total_contract > 0 %}{% widthratio item.total_paid item.total_contract 100 %}{% else %}0{% endif %}%"></div>
+          </div>
+        </div>
+        {% endwith %}
+        {% endif %}
+
+        <!-- Raqamlar -->
+        <div class="row g-2 text-center mt-2">
+          <div class="col-4">
+            <div class="fw-600" style="font-size:.95rem; color:#1e293b">{{ item.student_count }}</div>
+            <div class="text-muted" style="font-size:.72rem">Talaba</div>
+          </div>
+          <div class="col-4">
+            <div class="fw-600" style="font-size:.95rem; color:#059669">{{ item.total_paid|floatformat:0 }}</div>
+            <div class="text-muted" style="font-size:.72rem">To'langan</div>
+          </div>
+          <div class="col-4">
+            <div class="fw-600" style="font-size:.95rem; color:#dc2626">{{ item.total_debt|floatformat:0 }}</div>
+            <div class="text-muted" style="font-size:.72rem">Qarz</div>
+          </div>
+        </div>
+      </div>
+      <div class="card-footer bg-transparent border-top-0 pt-0 pb-3 px-3">
+        <a href="{% url 'dashboard:group_detail' item.group.pk %}" class="btn btn-sm btn-outline-primary w-100">
+          <i class="fas fa-eye me-1"></i>Ko'rish
+        </a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<div class="card p-5 text-center">
+  <i class="fas fa-users fa-3x text-muted mb-3"></i>
+  <h5 class="text-muted">Guruhlar topilmadi</h5>
+  <p class="text-muted small">Sizga hali guruh biriktirilmagan. Admin bilan bog'laning.</p>
+</div>
+{% endif %}
+
+{% endblock %}

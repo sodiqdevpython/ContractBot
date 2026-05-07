@@ -118,7 +118,7 @@ class Migration(migrations.Migration):
             name='StudentParent',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('role', models.CharField(blank=True, choices=[('father', 'Ota'), ('mother', 'Ona'), ('other', 'Boshqa (Aka/Opa)')], max_length=150, null=True, verbose_name='Qarindoshlik darajasi')),
+                ('role', models.CharField(blank=True, choices=[('father', 'Ota'), ('mother', 'Ona'), ('other', 'Boshqa (Aka/Opa)')], max_length=150, null=True, verbose_name='Qarindoshlik tiersi')),
                 ('custom_role_name', models.CharField(blank=True, max_length=100, null=True, verbose_name='Kimligi (Boshqa)')),
                 ('status', models.CharField(choices=[('pending_otp', 'OTP kutilmoqda'), ('pending_admin', 'Admin tasdiqlashi kutilmoqda'), ('verified', 'Tasdiqlangan'), ('rejected', "Rad etilgan (Qora ro'yxat)")], default='pending_otp', max_length=20, verbose_name='Status')),
                 ('otp_code', models.CharField(blank=True, max_length=6, null=True, verbose_name='OTP Kod')),
