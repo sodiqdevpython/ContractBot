@@ -73,9 +73,11 @@ services:
       - DB_PORT=5432
       - REDIS_URL=redis://redis:6379/0
       - TELEGRAM_BOT_TOKEN=8637787409:AAGH7zMMS4hjTFo9rsh4ZbKPmdJP2JKIXPE
+      - API_BASE_URL=http://web:8000/api
     depends_on:
       - db
       - redis
+      - web
 
 volumes:
   postgres_data:

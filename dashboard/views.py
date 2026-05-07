@@ -785,21 +785,53 @@ class PaymentStatsView(View):
 
 @method_decorator(login_required(login_url='/dashboard/login/'), name='dispatch')
 class CampaignSendView(View):
+    def _get_accessible_scheduled(self, user):
+        """Foydalanuvchi ruxsatiga ko'ra rejalashtirilgan kampaniyalar."""
+        all_groups = get_accessible_groups(user)
+        return (
+            NotificationCampaign.objects
+            .filter(groups__in=all_groups)
+            .distinct()
+            .prefetch_related('groups')
+            .order_by('start_date', 'send_time')
+        )
+
     def get(self, request):
+        from django.utils import timezone as _tz
         all_groups = get_accessible_groups(request.user)
         failures_count = NotificationFailure.objects.count()
+        scheduled_campaigns = self._get_accessible_scheduled(request.user)
         context = {
             'all_groups': all_groups,
             'failures_count': failures_count,
+            'scheduled_campaigns': scheduled_campaigns,
+            'today_str': _tz.localdate().isoformat(),
         }
         return render(request, 'dashboard/campaign_send.html', context)
 
     def post(self, request):
-        from users.tasks import send_telegram_message as _send_msg
+        action    = request.POST.get('action', '')
+        send_mode = request.POST.get('send_mode', 'now')
 
+        # ── 1. Rejalashtirilgan kampaniyani o'chirish ──────────────────────
+        if action == 'delete_schedule':
+            camp_id = request.POST.get('campaign_id')
+            if camp_id:
+                accessible_ids = list(
+                    get_accessible_groups(request.user).values_list('pk', flat=True)
+                )
+                camp = NotificationCampaign.objects.filter(pk=camp_id).first()
+                if camp and camp.groups.filter(pk__in=accessible_ids).exists():
+                    camp.delete()
+                    messages.success(request, "Rejalashtirilgan xabarnoma o'chirildi.")
+                else:
+                    messages.error(request, "Kampaniya topilmadi yoki ruxsat yo'q.")
+            return redirect('dashboard:campaign_send')
+
+        # ── Umumiy maydonlar ───────────────────────────────────────────────
         group_ids      = request.POST.getlist('groups')
         recipient_type = request.POST.get('recipient_type', 'student_only')
-        tier_filter    = int(request.POST.get('tier_filter', 0))
+        tier_filter    = int(request.POST.get('tier_filter', 0) or 0)
         student_type   = request.POST.get('student_type', 'all')
         message_text   = request.POST.get('message_text', '').strip()
 
@@ -812,6 +844,63 @@ class CampaignSendView(View):
             get_accessible_groups(request.user).values_list('pk', flat=True)
         )
         group_ids = [gid for gid in group_ids if int(gid) in accessible_ids]
+        if not group_ids:
+            messages.error(request, "Tanlangan guruhlar uchun ruxsat yo'q.")
+            return redirect('dashboard:campaign_send')
+
+        # ── 2. Rejalashtirilgan yuborish — kampaniya yaratish ──────────────
+        if send_mode == 'scheduled':
+            from datetime import date as _date, time as _time
+            start_date_str = request.POST.get('scheduled_start_date', '').strip()
+            end_date_str   = request.POST.get('scheduled_end_date', '').strip()
+            time_str       = request.POST.get('scheduled_time', '09:00').strip()
+
+            if not start_date_str or not end_date_str:
+                messages.error(request, "Boshlanish va tugash sanalarini kiriting.")
+                return redirect('dashboard:campaign_send')
+
+            try:
+                sched_start = _date.fromisoformat(start_date_str)
+                sched_end   = _date.fromisoformat(end_date_str)
+            except ValueError:
+                messages.error(request, "Noto'g'ri sana formati.")
+                return redirect('dashboard:campaign_send')
+
+            if sched_end < sched_start:
+                messages.error(request, "Tugash sanasi boshlanish sanasidan kichik bo'lmasligi kerak.")
+                return redirect('dashboard:campaign_send')
+
+            try:
+                parts = time_str.split(':')
+                sched_time = _time(int(parts[0]), int(parts[1]))
+            except Exception:
+                sched_time = _time(9, 0)
+
+            camp = NotificationCampaign.objects.create(
+                start_date=sched_start,
+                end_date=sched_end,
+                send_time=sched_time,
+                message_text=message_text,
+                recipients=recipient_type,
+                target_debt_tier=tier_filter,
+                student_type_filter=student_type,
+            )
+            camp.groups.set(group_ids)
+
+            if sched_start == sched_end:
+                date_info = f"{sched_start.strftime('%d.%m.%Y')} kuni"
+            else:
+                date_info = f"{sched_start.strftime('%d.%m.%Y')} — {sched_end.strftime('%d.%m.%Y')} kunlari har kuni"
+
+            messages.success(
+                request,
+                f"Xabarnoma {date_info} soat {sched_time.strftime('%H:%M')} da "
+                f"yuborilish uchun rejalashtirildi ✅"
+            )
+            return redirect('dashboard:campaign_send')
+
+        # ── 3. Hozir yuborish ──────────────────────────────────────────────
+        from users.tasks import send_telegram_message as _send_msg
 
         students = (
             Student.objects
@@ -828,7 +917,7 @@ class CampaignSendView(View):
         sent = failed = skipped = 0
 
         for student in students:
-            # tier filter: faqat shuncha % kam to'laganlar
+            # bosqich filtri: faqat shuncha % kam to'laganlar
             if tier_filter > 0:
                 contract = student.contracts.filter(academic_year=current_year).first()
                 if contract and contract.contract_amount > 0:

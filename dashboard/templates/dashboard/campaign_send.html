@@ -89,6 +89,26 @@ nav_campaign %}active{% endblock %} {% block extra_head %}
       opacity: 0.3;
     }
   }
+
+  /* Yuborish rejimi */
+  .send-mode-card {
+    border: 2px solid #e2e8f0; border-radius: 10px; padding: .75rem 1rem;
+    cursor: pointer; transition: all .15s; font-size: .88rem;
+  }
+  .send-mode-card:has(input:checked) { border-color: #6366f1; background: #eef2ff; }
+  .send-mode-card input { display: none; }
+
+  /* Rejalashtirilganlar */
+  .sched-row {
+    padding: .65rem .75rem; border-radius: 10px; background: #f8fafc;
+    border: 1px solid #e2e8f0; margin-bottom: .5rem; font-size: .83rem;
+  }
+  .sched-row:hover { background: #f1f5f9; }
+  .sched-chip {
+    display: inline-flex; align-items: center; gap: 3px;
+    background: #e2e8f0; border-radius: 12px;
+    padding: 1px 8px; font-size: .7rem; color: #475569;
+  }
 </style>
 {% endblock %} {% block content %}
 <div class="row g-3">
@@ -310,21 +330,75 @@ nav_campaign %}active{% endblock %} {% block extra_head %}
         </div>
       </div>
 
+      <!-- ═══ Qachon yuborilsin? ═══ -->
+      <div class="card mb-3">
+        <div class="card-header bg-transparent border-bottom py-2 px-3">
+          <h6 class="mb-0 small fw-bold">
+            <i class="fas fa-clock me-2 text-primary"></i>Qachon yuborilsin?
+          </h6>
+        </div>
+        <div class="card-body p-3 d-flex flex-column gap-2">
+          <label class="send-mode-card d-flex align-items-center gap-3">
+            <input type="radio" name="send_mode" value="now" id="mode_now"
+                   checked onchange="toggleSchedule()">
+            <div>
+              <div class="fw-semibold"><i class="fas fa-bolt me-1 text-warning"></i>Hozir yuborish</div>
+              <div class="text-muted small">Yuborish tugmasi bosilganda darhol yuboriladi</div>
+            </div>
+          </label>
+          <label class="send-mode-card d-flex align-items-center gap-3">
+            <input type="radio" name="send_mode" value="scheduled" id="mode_sched"
+                   onchange="toggleSchedule()">
+            <div>
+              <div class="fw-semibold"><i class="fas fa-calendar-check me-1 text-primary"></i>Rejalashtirilgan vaqtda</div>
+              <div class="text-muted small">Boshlanish — tugash oralig'ida har kuni avtomatik yuboriladi</div>
+            </div>
+          </label>
+
+          <!-- Sana inputlari -->
+          <div id="schedInputs" style="display:none" class="mt-1">
+            <div class="row g-2 align-items-end">
+              <div class="col-5">
+                <label class="form-label small fw-semibold mb-1">
+                  <i class="fas fa-calendar-day me-1 text-primary"></i>Boshlanish sanasi
+                </label>
+                <input type="date" name="scheduled_start_date" id="schedStartDate"
+                       class="form-control form-control-sm"
+                       min="{{ today_str }}"
+                       onchange="checkEndDate()">
+              </div>
+              <div class="col-5">
+                <label class="form-label small fw-semibold mb-1">
+                  <i class="fas fa-calendar-check me-1 text-danger"></i>Tugash sanasi
+                </label>
+                <input type="date" name="scheduled_end_date" id="schedEndDate"
+                       class="form-control form-control-sm"
+                       min="{{ today_str }}">
+              </div>
+              <div class="col-2">
+                <label class="form-label small fw-semibold mb-1">Soat</label>
+                <input type="time" name="scheduled_time" id="schedTime"
+                       class="form-control form-control-sm" value="09:00">
+              </div>
+            </div>
+            <div class="mt-2 p-2 rounded" style="background:#eef2ff;font-size:.78rem;color:#4338ca">
+              <i class="fas fa-repeat me-1"></i>
+              Boshlanish sanasidan tugash sanasigacha <b>har kuni</b> belgilangan soatda avtomatik yuboriladi.
+              Tugash sanasi o'tsa yoki o'chirilsa — to'xtaydi.
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Submit -->
-      <button
-        type="submit"
-        class="btn btn-primary w-100 py-2"
-        onclick="
-          return confirm(
-            'Xabarnomani yuborishni tasdiqlaysizmi?\nBu amalni qaytarib bo\'lmaydi.',
-          )
-        "
-      >
-        <i class="fas fa-paper-plane me-2"></i>Xabarnomani yuborish
+      <button type="submit" class="btn btn-primary w-100 py-2" id="submitBtn"
+              onclick="return confirmSend()">
+        <i class="fas fa-paper-plane me-2" id="submitIcon"></i>
+        <span id="submitText">Hozir yuborish</span>
       </button>
       <div class="text-muted small text-center mt-2">
         <i class="fas fa-shield-halved me-1"></i>
-        Tutor tasdiqlagan talabalar avtomatik o'tkazib yuboriladi
+        Tutor tasdiqlagan talabalar o'tkazib yuboriladi
       </div>
     </form>
   </div>
@@ -428,64 +502,152 @@ nav_campaign %}active{% endblock %} {% block extra_head %}
 
     <!-- So'nggi xabarnoma xatolari -->
     {% if failures_count > 0 %}
-    <div class="card" style="border-left: 4px solid #ef4444">
-      <div
-        class="card-header bg-transparent border-bottom py-2 px-3 d-flex justify-content-between"
-      >
+    <div class="card mb-3" style="border-left: 4px solid #ef4444">
+      <div class="card-header bg-transparent border-bottom py-2 px-3 d-flex justify-content-between">
         <h6 class="mb-0 small fw-bold" style="color: #dc2626">
           <i class="fas fa-triangle-exclamation me-2"></i>
-          Yuborilmagan foydalanuvchilar: {{ failures_count }} ta
+          Yuborilmaganlar: {{ failures_count }} ta
         </h6>
-        <a
-          href="{% url 'dashboard:notification_failures' %}"
-          class="btn btn-sm btn-outline-danger"
-          style="font-size: 0.72rem; padding: 2px 8px"
-        >
-          Ko'rish
-        </a>
+        <a href="{% url 'dashboard:notification_failures' %}"
+           class="btn btn-sm btn-outline-danger"
+           style="font-size: 0.72rem; padding: 2px 8px">Ko'rish</a>
       </div>
       <div class="card-body p-3 small text-muted">
-        Bu foydalanuvchilarga xabar yetib bormagan (bot bloklangan yoki Telegram
-        ID noto'g'ri). Ularni ko'rish va boshqarish uchun "Yuborilmaganlar"
-        bo'limiga o'ting.
+        Bot bloklangan yoki Telegram ID noto'g'ri bo'lgan foydalanuvchilar.
       </div>
     </div>
     {% else %}
-    <div class="card p-3 text-center" style="border-left: 4px solid #10b981">
+    <div class="card mb-3 p-3 text-center" style="border-left: 4px solid #10b981">
       <i class="fas fa-circle-check text-success me-2"></i>
-      <span class="small text-muted"
-        >Xabarnoma xatolari yo'q — hammasi yaxshi!</span
-      >
+      <span class="small text-muted">Xabarnoma xatolari yo'q — hammasi yaxshi!</span>
     </div>
     {% endif %}
+
+    <!-- Rejalashtirilgan xabarnomalar -->
+    {% if scheduled_campaigns %}
+    <div class="card">
+      <div class="card-header bg-transparent border-bottom py-2 px-3 d-flex justify-content-between align-items-center">
+        <h6 class="mb-0 small fw-bold">
+          <i class="fas fa-calendar-check me-2 text-primary"></i>
+          Rejalashtirilgan xabarnomalar
+        </h6>
+        <span class="badge bg-primary bg-opacity-10 text-primary">{{ scheduled_campaigns|length }} ta</span>
+      </div>
+      <div class="card-body p-3">
+        {% for camp in scheduled_campaigns %}
+        <div class="sched-row">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <div class="fw-semibold">
+                <i class="fas fa-calendar me-1 text-primary"></i>
+                {{ camp.start_date|date:"d.m.Y" }}
+                {% if camp.start_date != camp.end_date %}— {{ camp.end_date|date:"d.m.Y" }}{% endif %}
+                &nbsp;soat <b>{{ camp.send_time|time:"H:i" }}</b>
+              </div>
+              <div class="text-muted" style="font-size:.75rem">
+                <i class="fas fa-repeat me-1"></i>Har kuni yuboriladi
+              </div>
+              <div class="d-flex flex-wrap gap-1 mt-1">
+                {% for g in camp.groups.all %}
+                <span class="sched-chip"><i class="fas fa-users"></i>{{ g.name }}</span>
+                {% endfor %}
+                <span class="sched-chip">
+                  {% if camp.recipients == 'student_only' %}Talabalar
+                  {% elif camp.recipients == 'parent_only' %}Ota-onalar
+                  {% else %}Talaba + Ota-ona{% endif %}
+                </span>
+                {% if camp.target_debt_tier > 0 %}
+                <span class="sched-chip">&lt;{{ camp.target_debt_tier }}%</span>
+                {% endif %}
+              </div>
+              <div class="text-muted mt-1" style="font-size:.78rem">
+                {{ camp.message_text|truncatechars:80 }}
+              </div>
+            </div>
+            <form method="post" class="ms-2 flex-shrink-0">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="delete_schedule">
+              <input type="hidden" name="campaign_id" value="{{ camp.pk }}">
+              <button type="submit" class="btn btn-sm btn-outline-danger"
+                      onclick="return confirm('Rejalashtirishni bekor qilasizmi?')"
+                      style="font-size:.72rem;padding:2px 8px" title="Bekor qilish">
+                <i class="fas fa-times"></i>
+              </button>
+            </form>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
   </div>
 </div>
-{% endblock %} {% block extra_js %}
+{% endblock %}
+
+{% block extra_js %}
 <script>
-  function updateLabels() {
-    document.querySelectorAll('.group-checkbox-label').forEach((lbl) => {
-      const cb = lbl.querySelector('input[type=checkbox]')
-      lbl.classList.toggle('checked', cb.checked)
-    })
-  }
+function updateLabels() {
+  document.querySelectorAll('.group-checkbox-label').forEach(lbl => {
+    const cb = lbl.querySelector('input[type=checkbox]');
+    lbl.classList.toggle('checked', cb.checked);
+  });
+}
 
-  function updatePreview() {
-    const text = document.getElementById('msgText').value
-    document.getElementById('charCount').textContent = text.length + ' belgi'
-    // Simple HTML preview (sanitized)
-    const safe = text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/&lt;b&gt;(.*?)&lt;\/b&gt;/g, '<b>$1</b>')
-      .replace(/&lt;i&gt;(.*?)&lt;\/i&gt;/g, '<i>$1</i>')
-      .replace(/&lt;code&gt;(.*?)&lt;\/code&gt;/g, '<code>$1</code>')
-    document.getElementById('msgPreview').innerHTML =
-      '📢 <b>Xabarnoma</b>\n\nHurmatli <b>[Talaba ismi]</b>,\n\n' + safe
-  }
+function updatePreview() {
+  const text = document.getElementById('msgText').value;
+  document.getElementById('charCount').textContent = text.length + ' belgi';
+  const safe = text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/&lt;b&gt;(.*?)&lt;\/b&gt;/g,'<b>$1</b>')
+    .replace(/&lt;i&gt;(.*?)&lt;\/i&gt;/g,'<i>$1</i>')
+    .replace(/&lt;code&gt;(.*?)&lt;\/code&gt;/g,'<code>$1</code>');
+  document.getElementById('msgPreview').innerHTML =
+    '📢 <b>Xabarnoma</b>\n\nHurmatli <b>[Talaba ismi]</b>,\n\n' + safe;
+}
 
-  // Init
-  updateLabels()
-  updatePreview()
+function toggleSchedule() {
+  const isSched = document.getElementById('mode_sched').checked;
+  document.getElementById('schedInputs').style.display = isSched ? 'block' : 'none';
+  document.getElementById('submitIcon').className = isSched
+    ? 'fas fa-calendar-check me-2' : 'fas fa-paper-plane me-2';
+  document.getElementById('submitText').textContent = isSched
+    ? 'Rejalashtirishni saqlash' : 'Hozir yuborish';
+}
+
+function checkEndDate() {
+  const start = document.getElementById('schedStartDate').value;
+  const endEl = document.getElementById('schedEndDate');
+  if (start && (!endEl.value || endEl.value < start)) {
+    endEl.value = start;
+  }
+  if (start) endEl.min = start;
+}
+
+function confirmSend() {
+  const isSched = document.getElementById('mode_sched').checked;
+  if (isSched) {
+    const s = document.getElementById('schedStartDate').value;
+    const e = document.getElementById('schedEndDate').value;
+    const t = document.getElementById('schedTime').value;
+    if (!s || !e || !t) {
+      alert('Iltimos, boshlanish sanasi, tugash sanasi va soatni kiriting.');
+      return false;
+    }
+    if (e < s) {
+      alert("Tugash sanasi boshlanish sanasidan kichik bo'lishi mumkin emas.");
+      return false;
+    }
+    const msg = s === e
+      ? `Xabarnoma ${s} kuni soat ${t} da yuboriladi.\nTasdiqlaysizmi?`
+      : `Xabarnoma ${s} — ${e} kunlari har kuni soat ${t} da yuboriladi.\nTasdiqlaysizmi?`;
+    return confirm(msg);
+  }
+  return confirm("Xabarnomani HOZIR yuborishni tasdiqlaysizmi?\nBu amalni qaytarib bo'lmaydi.");
+}
+
+// Init
+updateLabels();
+updatePreview();
 </script>
 {% endblock %}
